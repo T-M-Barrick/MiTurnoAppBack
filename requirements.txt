@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+sqlalchemy
+mysqlclient
+pydantic
+passlib[bcrypt] # passlib + las librerías extra para que bcrypt funcione.
+python-dotenv
+apscheduler # es una librería que permite programar tareas que se ejecuten en momentos específicos o de forma periódica.
+python-jose[cryptography]
