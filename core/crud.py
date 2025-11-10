@@ -482,8 +482,8 @@ def reservar_turno(db: Session, user_id: int, empresa_id: int, fecha_hora: datet
                 duracion=servicio.duracion,
                 precio=servicio.precio,
                 aclaracion_de_servicio=servicio.aclaracion,
-                estado_turno_usuario_id=1, # pendiente
-                estado_turno_empresa_id=1, # pendiente
+                estado_turno_usuario_id=1, # confirmado
+                estado_turno_empresa_id=1, # confirmado
                 eliminado=None)            
             db.add(turno)
             db.commit()
@@ -527,8 +527,8 @@ def reservar_turno(db: Session, user_id: int, empresa_id: int, fecha_hora: datet
                 duracion=servicio_elegido.duracion,
                 precio=servicio_elegido.precio,
                 aclaracion_de_servicio=servicio_elegido.aclaracion,
-                estado_turno_usuario_id=1, # pendiente
-                estado_turno_empresa_id=1, # pendiente
+                estado_turno_usuario_id=1, # confirmado
+                estado_turno_empresa_id=1, # confirmado
                 eliminado=None)            
             db.add(turno)
             db.commit()

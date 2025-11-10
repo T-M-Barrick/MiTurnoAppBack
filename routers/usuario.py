@@ -2,7 +2,7 @@
 Este módulo es para la sección cliente del usuario
 '''
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Cookie, Response, HTTPException # Depends se usa para declarar dependencias en FastAPI (por ejemplo, obtener la sesión de base de datos).
 from sqlalchemy.orm import Session, joinedload, selectinload # Session de SQLAlchemy, representa una sesión de base de datos.
@@ -47,7 +47,7 @@ def create_user(user: schemas.UserCreate, response: Response, db: Session = Depe
     # Convertimos el objeto de clase Usuario SQLAlchemy al objeto de clase UsuarioLoginOut de Pydantic
     us = auxiliares.convertir_orm_pydantic_usuario(user)
 
-    return UserConRolesOut(usuario=us, roles=[])
+    return schemas.UserConRolesOut(usuario=us, roles=[])
 
 # Usuario se loguea
 @router.post("/login", response_model=schemas.UserConRolesOut)
