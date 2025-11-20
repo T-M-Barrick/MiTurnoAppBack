@@ -20,8 +20,29 @@ class Usuario(Base):
     telefonos = relationship("Telefono", back_populates="usuario") # Relación bidireccional gracias a back_populates
     direcciones = relationship("Direccion", secondary="direccion_usuario") # Relación unidireccional de muchos a muchos con la tabla Direccion
     favoritos = relationship("Empresa", secondary="favorito") # Relación unidireccional de muchos a muchos con la tabla Empresa
-    turnos = relationship("Turno", back_populates="usuario") # Relación bidireccional gracias a back_populates de uno a muchos con la tabla Turno
-    historial = relationship("Historial", back_populates="usuario") # Relación bidireccional gracias a back_populates de uno a muchos con la tabla Historial
+
+    turnos = relationship(
+        "Turno",
+        back_populates="usuario",
+        foreign_keys="[Turno.usuario_id]"  # 🔹 Turnos donde actúa como cliente
+    ) # Relación bidireccional gracias a back_populates de uno a muchos con la tabla Turno
+    profesional_turnos = relationship(
+        "Turno",
+        back_populates="profesional",
+        foreign_keys="[Turno.profesional_id]"  # 🔹 Turnos donde actúa como profesional
+    ) # Relación bidireccional gracias a back_populates de uno a muchos con la tabla Turno
+
+    historial = relationship(
+        "Historial",
+        back_populates="usuario",
+        foreign_keys="[Historial.usuario_id]"  # 🔹 Turnos donde actuó como cliente
+    ) # Relación bidireccional gracias a back_populates de uno a muchos con la tabla Historial
+    profesional_historial = relationship(
+        "Historial",
+        back_populates="profesional",
+        foreign_keys="[Historial.profesional_id]"  # 🔹 Turnos donde actuó como profesional
+    ) # Relación bidireccional gracias a back_populates de uno a muchos con la tabla Historial
+
     miembro_empresas = relationship("Miembro_Empresa", back_populates="usuario")
 
 class Empresa(Base):
@@ -39,7 +60,6 @@ class Empresa(Base):
     telefonos = relationship("Telefono", back_populates="empresa")
     direccion = relationship("Direccion", back_populates="empresa", uselist=False)
     servicios = relationship("Servicio", back_populates="empresa")
-    disponibilidades = relationship("Emp_Disp", back_populates="empresa")
     calificaciones = relationship("Calificacion", back_populates="empresa") # Relación bidireccional de uno a muchos con la tabla Calificacion
     miembros = relationship("Miembro_Empresa", back_populates="empresa")
 
@@ -47,8 +67,8 @@ class Miembro_Empresa(Base):
     __tablename__ = "miembro_empresa"
 
     id = Column(Integer, primary_key=True, index=True)
-    usuario_id = Column(Integer, ForeignKey("usuario.id"), primary_key=True)
-    empresa_id = Column(Integer, ForeignKey("empresa.id"), primary_key=True)
+    usuario_id = Column(Integer, ForeignKey("usuario.id"), nullable=False)
+    empresa_id = Column(Integer, ForeignKey("empresa.id"), nullable=False)
     rol = Column(String(50), nullable=False)  # 'propietario', 'gerente' o 'empleado'
 
     __table_args__ = (UniqueConstraint("usuario_id", "empresa_id", name="uq_m_e_usuario_empresa"), )
@@ -56,6 +76,7 @@ class Miembro_Empresa(Base):
     # Relationships
     usuario = relationship("Usuario", back_populates="miembro_empresas")
     empresa = relationship("Empresa", back_populates="miembros")
+    servicios = relationship("Servicio", back_populates="profesional")
 
 class Telefono(Base):
 
@@ -78,8 +99,6 @@ class Direccion(Base):
     domicilio = Column(String(255)) # El devuelto por Google Maps
     lat = Column(Float, nullable=False)
     lng = Column(Float, nullable=False)
-    piso = Column(String(50))
-    departamento = Column(String(50))
     aclaracion = Column(String(255))
 
     # Relationships
@@ -101,13 +120,23 @@ class Turno(Base):
     nombre_de_servicio = Column(String(255), nullable=False)
     duracion = Column(Integer) # minutos
     precio = Column(Numeric(10, 2))  # 10 dígitos, 2 decimales
-    aclaracion_de_servicio = Column(String(255)) # cualquier aclaración como con quién quiere atenderse el usuario
+    aclaracion_de_servicio = Column(String(255)) # cualquier aclaración o descripción
+    profesional_id = Column(Integer, ForeignKey("usuario.id"))
     estado_turno_usuario_id = Column(Integer, ForeignKey("estado_turno_usuario.id"), nullable=False)
     estado_turno_empresa_id = Column(Integer, ForeignKey("estado_turno_empresa.id"), nullable=False)
     eliminado = Column(String(50)) # NULL si nadie lo movió a su historial. 'u' si lo movió a su historial el usuario. 'e' si lo movió a su historial la empresa. 
 
     # Relationships
-    usuario = relationship("Usuario", back_populates="turno")
+    usuario = relationship(
+        "Usuario",
+        back_populates="turnos",
+        foreign_keys=[usuario_id]  # 🔹 indica que esta relación usa usuario_id
+    )
+    profesional = relationship(
+        "Usuario",
+        back_populates="profesional_turnos",
+        foreign_keys=[profesional_id]  # 🔹 indica que esta relación usa profesional_id
+    )
     empresa = relationship("Empresa")
     estado_turno_usuario = relationship("Estado_Turno_Usuario")
     estado_turno_empresa = relationship("Estado_Turno_Empresa")
@@ -122,7 +151,8 @@ class Historial(Base):
     nombre_de_servicio = Column(String(255), nullable=False)
     duracion = Column(Integer) # minutos
     precio = Column(Numeric(10, 2))  # 10 dígitos, 2 decimales
-    aclaracion_de_servicio = Column(String(255)) # cualquier aclaración como con quién quiere atenderse el usuario
+    aclaracion_de_servicio = Column(String(255)) # cualquier aclaración o descripción
+    profesional_id = Column(Integer, ForeignKey("usuario.id"))
 
     # Al pasar a Historial, sin que lo haga el limpiador periódico, el estado del otro va a ser ser NULL y así cuando el usuario o empresa
     # pida su historial, no se van a pasar los que tengan NULL en su estado ya que significa que nunca eliminaron al turno.
@@ -130,7 +160,16 @@ class Historial(Base):
     estado_turno_empresa_id= Column(Integer, ForeignKey("estado_turno_empresa.id"))
 
     # Relationships
-    usuario = relationship("Usuario", back_populates="historial_turno")
+    usuario = relationship(
+        "Usuario",
+        back_populates="historial",
+        foreign_keys=[usuario_id]  # 🔹 indica que esta relación usa usuario_id
+    )
+    profesional = relationship(
+        "Usuario",
+        back_populates="profesional_historial",
+        foreign_keys=[profesional_id]  # 🔹 indica que esta relación usa profesional_id
+    )
     empresa = relationship("Empresa")
     estado_turno_usuario = relationship("Estado_Turno_Usuario")
     estado_turno_empresa = relationship("Estado_Turno_Empresa")
@@ -143,10 +182,13 @@ class Servicio(Base):
     nombre = Column(String(255), nullable=False)
     duracion = Column(Integer) # minutos
     precio = Column(Numeric(10, 2))  # 10 dígitos, 2 decimales
-    aclaracion = Column(String(255)) # cualquier aclaración como con quién quiere atenderse el usuario
+    aclaracion = Column(String(255)) # cualquier aclaración o descripción
+    miembro_empresa_id = Column(Integer, ForeignKey("miembro_empresa.id"))
 
     # Relationships
     empresa = relationship("Empresa", back_populates="servicios")
+    profesional = relationship("Miembro_Empresa", back_populates="servicios")
+    ser_disps = relationship("Ser_Disp", back_populates="servicio")
 
 class Estado_Turno_Usuario(Base):
     __tablename__ = "estado_turno_usuario" # Esta tabla ya viene con estados puestos
@@ -175,30 +217,16 @@ class Disponibilidad(Base):
 
     __table_args__ = (UniqueConstraint("dia", "hora", name="uq_disponibilidad_dia_hora"), )
 
-class Emp_Disp(Base): # Conecta Empresa con Disponibiliad
-    __tablename__ = "empresa_disponibilidad"
+class Ser_Disp(Base): # Conecta Servicio con Disponibilidad
+    __tablename__ = "servicio_disponibilidad"
 
-    id = Column(Integer, primary_key=True)
-    empresa_id = Column(Integer, ForeignKey("empresa.id"))
-    disponibilidad_id = Column(Integer, ForeignKey("disponibilidad.id"))
-
-    __table_args__ = (UniqueConstraint("empresa_id", "disponibilidad_id", name="uq_emp_disp_empresa_id_disponibilidad_id"), )
-
-    # Relationships
-    empresa = relationship("Empresa", back_populates="disponibilidades")
-    disponibilidad = relationship("Disponibilidad")
-    servicios = relationship("Emp_Disp_Ser", back_populates="emp_disp")
-
-class Emp_Disp_Ser(Base): # Conecta Emp_Disp con Servicio
-    __tablename__ = "empresa_disponibilidad_servicio"
-
-    emp_disp_id = Column(Integer, ForeignKey("empresa_disponibilidad.id"), primary_key=True)
     servicio_id = Column(Integer, ForeignKey("servicio.id"), primary_key=True)
+    disponibilidad_id = Column(Integer, ForeignKey("disponibilidad.id"), primary_key=True)
     cant_turnos_max = Column(Integer)
 
     # Relationships
-    emp_disp = relationship("Emp_Disp", back_populates="servicios")
-    servicio = relationship("Servicio")
+    servicio = relationship("Servicio", back_populates="ser_disps")
+    disponibilidad = relationship("Disponibilidad")
 
 class Calificacion(Base):
     __tablename__ = "calificacion"

@@ -4,6 +4,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from routers import usuario, empresa
 from core.auxiliares import limpiar_tokens_expirados
+from core.variables import FRONTEND_URL
 
 # Creamos la aplicación FastAPI y le da un título que se ve en la documentación automática (/docs).
 app = FastAPI(title="Reservas API")
@@ -12,9 +13,7 @@ app = FastAPI(title="Reservas API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5500",     # Para desarrollo local (por ejemplo Live Server de VSCode)
-        "http://127.0.0.1:5500",
-        "https://tusitio.com", # dominio de la pagina web (es el dominio donde está alojado el frontend)
+        FRONTEND_URL, # dominio de la pagina web (es el dominio donde está alojado el frontend)
     ],
     allow_credentials=True, # necesario para usar cookies
     allow_methods=["*"], # permite todos los métodos (GET, POST, etc.)
@@ -38,6 +37,16 @@ scheduler.start()
 'from core.database import engine, Base # engine es la conexión a la base de datos, y Base es la clase base de los modelos.'
 'Base.metadata.create_all(bind=engine) # Crear tablas en la base de datos'
 
-'uvicorn main:app --reload' 'http://127.0.0.1:8000/docs'
+'uvicorn main:app --reload --port 8000'
 
-'https://github.com/agustiina18/pps-proyecto/tree/feat/integracion-backend'
+'http://127.0.0.1:8000/docs'
+
+'https://github.com/agustiina18/pps-proyecto/tree/feat/integracion-backend' # No usar
+
+'https://github.com/Shir07/pps-proyecto2' # usar este y no el de arriba de las chicas
+
+'https://github.com/EduDavMorales/miturno-api'
+
+'https://www.figma.com/design/xMTrz4i0dETO8RwtYvF84y/MiTurno-APP-WEB'
+
+'https://trello.com/b/Hxb6LrqB/proyecto-pps'

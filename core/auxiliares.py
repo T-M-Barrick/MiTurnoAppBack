@@ -23,8 +23,6 @@ def convertir_orm_pydantic_usuario(user, update=False, turnos_del_usuario=[]):
                 domicilio=d.domicilio,
                 lat=d.lat,
                 lng=d.lng,
-                piso=d.piso,
-                departamento=d.departamento,
                 aclaracion=d.aclaracion) for d in user.direcciones],
             
             favoritos=[schemas.EmpresaOut(
@@ -41,8 +39,6 @@ def convertir_orm_pydantic_usuario(user, update=False, turnos_del_usuario=[]):
                     domicilio=e.direccion.domicilio,
                     lat=e.direccion.lat,
                     lng=e.direccion.lng,
-                    piso=e.direccion.piso,
-                    departamento=e.direccion.departamento,
                     aclaracion=e.direccion.aclaracion),
                 servicios=list({s.nombre for s in e.servicios}) # Evita duplicados
             ) for e in user.favoritos],
@@ -55,14 +51,15 @@ def convertir_orm_pydantic_usuario(user, update=False, turnos_del_usuario=[]):
                     domicilio=turn.empresa.direccion.domicilio,
                     lat=turn.empresa.direccion.lat,
                     lng=turn.empresa.direccion.lng,
-                    piso=turn.empresa.direccion.piso,
-                    departamento=turn.empresa.direccion.departamento,
                     aclaracion=turn.empresa.direccion.aclaracion),
                 fecha_hora=turn.fecha_hora,
                 nombre_de_servicio=turn.nombre_de_servicio,
                 duracion=turn.duracion,
                 precio=turn.precio,
                 aclaracion_de_servicio=turn.aclaracion_de_servicio,
+                profesional_dni=turn.profesional.dni if turn.profesional else None,
+                profesional_apellido=turn.profesional.apellido if turn.profesional else None,
+                profesional_nombre=turn.profesional.nombre if turn.profesional else None,
                 estado_turno=turn.estado_turno_usuario.estado
             ) for turn in turnos_del_usuario]
         )   
@@ -81,8 +78,6 @@ def convertir_orm_pydantic_usuario(user, update=False, turnos_del_usuario=[]):
                 domicilio=d.domicilio,
                 lat=d.lat,
                 lng=d.lng,
-                piso=d.piso,
-                departamento=d.departamento,
                 aclaracion=d.aclaracion) for d in user.direcciones],
             
             favoritos=[schemas.EmpresaOut(
@@ -99,8 +94,6 @@ def convertir_orm_pydantic_usuario(user, update=False, turnos_del_usuario=[]):
                     domicilio=e.direccion.domicilio,
                     lat=e.direccion.lat,
                     lng=e.direccion.lng,
-                    piso=e.direccion.piso,
-                    departamento=e.direccion.departamento,
                     aclaracion=e.direccion.aclaracion),
                 servicios=list({s.nombre for s in e.servicios}) # Evita duplicados
             ) for e in user.favoritos]
@@ -119,16 +112,32 @@ def convertir_orm_pydantic_empresa(empresa, miembro_rol):
         domicilio=empresa.direccion.domicilio,
         lat=empresa.direccion.lat,
         lng=empresa.direccion.lng,
-        piso=empresa.direccion.piso,
-        departamento=empresa.direccion.departamento,
         aclaracion=empresa.direccion.aclaracion)
+    
+    servicios_out = []
+    for s in empresa.servicios:
+        profesional = s.profesional
+        usuario = profesional.usuario if profesional else None
 
-    servicios_out = [schemas.ServicioOut(
-        id=s.id,
-        nombre=s.nombre,
-        duracion=s.duracion,
-        precio=s.precio,
-        aclaracion=s.aclaracion) for s in empresa.servicios]
+        servicios_out.append(
+            schemas.ServicioOut(
+                id=s.id,
+                nombre=s.nombre,
+                duracion=s.duracion,
+                precio=s.precio,
+                aclaracion=s.aclaracion,
+                profesional_id=s.miembro_empresa_id,
+                profesional_dni=usuario.dni if usuario else None,
+                profesional_apellido=usuario.apellido if usuario else None,
+                profesional_nombre=usuario.nombre if usuario else None,
+                disponibilidades=[
+                    schemas.DisponibilidadOut(
+                        id=sd.disponibilidad.id,
+                        dia=sd.disponibilidad.dia,
+                        hora=sd.disponibilidad.hora,
+                        cant_turnos_max=sd.cant_turnos_max) for sd in s.ser_disps]
+            )
+        )
 
     turnos = crud.get_turnos(db, empresa_id, user=False)
     turnos_out = [schemas.TurnoEmpresaOut(
@@ -141,6 +150,9 @@ def convertir_orm_pydantic_empresa(empresa, miembro_rol):
         duracion=t.duracion,
         precio=t.precio,
         aclaracion_de_servicio=t.aclaracion_de_servicio,
+        profesional_dni=t.profesional.dni if t.profesional else None,
+        profesional_apellido=t.profesional.apellido if t.profesional else None,
+        profesional_nombre=t.profesional.nombre if t.profesional else None,
         estado_turno=t.estado_turno_empresa.estado) for t in turnos]
 
     miembros_out = [schemas.UserOut(
@@ -150,17 +162,6 @@ def convertir_orm_pydantic_empresa(empresa, miembro_rol):
         nombre=m.usuario.nombre,
         email=m.usuario.email,
         rol=m.rol) for m in empresa.miembros]
-
-    disponibilidades_out = []
-    for ed in empresa.disponibilidades:
-        servicios_out = [{"id": eds.servicio_id, "cant_turnos_max": eds.cant_turnos_max} 
-            for eds in ed.servicios] # ids de los servicios en esa disponibilidad exacta
-        d = schemas.DisponibilidadOut(
-            id=ed.disponibilidad.id,
-            dia=ed.disponibilidad.dia,
-            hora=ed.disponibilidad.hora,
-            servicios=servicios_out)
-        disponibilidades_out.append(d)
 
     empresa_out = schemas.EmpresaPanelOut(
         id=empresa.id,
@@ -175,7 +176,6 @@ def convertir_orm_pydantic_empresa(empresa, miembro_rol):
         servicios=servicios_out,
         turnos=turnos_out,
         miembros=miembros_out,
-        disponibilidades=disponibilidades_out,
         rol=miembro_rol)
 
     return empresa_out

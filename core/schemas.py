@@ -16,8 +16,6 @@ class DireccionIn(BaseModel):
     domicilio: str
     lat: float
     lng: float
-    piso: Optional[str] = None
-    departamento: Optional[str] = None
     aclaracion: Optional[str] = None
 
     model_config = {"from_attributes": True}
@@ -27,8 +25,6 @@ class DireccionOut(BaseModel):
     domicilio: str
     lat: float
     lng: float
-    piso: Optional[str] = None
-    departamento: Optional[str] = None
     aclaracion: Optional[str] = None
 
     model_config = {"from_attributes": True}
@@ -38,8 +34,6 @@ class DireccionUpdate(BaseModel):
     domicilio: Optional[str] = None
     lat: Optional[float] = None
     lng: Optional[float] = None
-    piso: Optional[str] = None
-    departamento: Optional[str] = None
     aclaracion: Optional[str] = None
 
     model_config = {"from_attributes": True}
@@ -86,6 +80,9 @@ class TurnoOut(BaseModel):
     duracion: Optional[int] = None
     precio: Optional[Decimal] = None
     aclaracion_de_servicio: Optional[str] = None
+    profesional_dni: Optional[int] = None
+    profesional_apellido: Optional[str] = None
+    profesional_nombre: Optional[str] = None
     estado_turno: str
 
     model_config = {"from_attributes": True}
@@ -107,12 +104,6 @@ class RolEmpresaOut(BaseModel):
     rol: str
     empresa_id: int
     nombre: str # Nombre de la empresa
-    
-    model_config = {"from_attributes": True}
-
-class UserConRolesOut(BaseModel):
-    usuario: UserLoginOut
-    roles: list[RolEmpresaOut] = Field(default_factory=list)
     
     model_config = {"from_attributes": True}
 
@@ -147,6 +138,9 @@ class HistorialOut(BaseModel):
     duracion: Optional[int] = None
     precio: Optional[Decimal] = None
     aclaracion_de_servicio: Optional[str] = None
+    profesional_dni: Optional[int] = None
+    profesional_apellido: Optional[str] = None
+    profesional_nombre: Optional[str] = None
     estado_turno: str
 
     model_config = {"from_attributes": True}
@@ -160,11 +154,8 @@ class HistorialResponse(BaseModel):
 class ReservaTurnoIn(BaseModel):
     empresa_id: int
     fecha_hora: datetime
-    servicio_id: int
-
-    # aclaracion_de_servicio True es cuando se toma en cuenta la aclaracion 
-    # y False cuando no y solo importa el nombre del servicio.
-    aclaracion_de_servicio: bool
+    servicio_id: int # en caso de que hayan muchos servicios iguales con distintos profesionales, el front va a mandar el id de cualquiera de esos servicios
+    profesional_id: Optional[int] = None # si es 0, entonces significa que es un servicio que tiene profesionales pero que al cliente le da igual cuál
 
     model_config = {"from_attributes": True}
 
@@ -190,8 +181,6 @@ class EmpresaCreate(BaseModel):
     rubro2: Optional[str] = None
     telefonos: list[int] = Field(default_factory=list)
     direccion: DireccionIn # obligatorio al crear su empresa
-    email_de_usuario: str
-    password_de_usuario: str
 
     model_config = {"from_attributes": True}
 
@@ -206,14 +195,6 @@ class EmpresaUpdate(BaseModel):
 
     model_config = {"from_attributes": True}
 
-class ServicioOut(BaseModel):
-    id: int
-    nombre: str
-    duracion: Optional[int] = None
-    precio: Optional[Decimal] = None
-    aclaracion: Optional[str] = None
-
-    model_config = {"from_attributes": True}
 
 class HistorialEmpresaOut(BaseModel):
     usuario_dni: int
@@ -224,6 +205,9 @@ class HistorialEmpresaOut(BaseModel):
     duracion: Optional[int] = None
     precio: Optional[Decimal] = None
     aclaracion_de_servicio: Optional[str] = None
+    profesional_dni: Optional[int] = None
+    profesional_apellido: Optional[str] = None
+    profesional_nombre: Optional[str] = None
     estado_turno: str
 
     model_config = {"from_attributes": True}
@@ -244,6 +228,9 @@ class TurnoEmpresaOut(BaseModel):
     duracion: Optional[int] = None
     precio: Optional[Decimal] = None
     aclaracion_de_servicio: Optional[str] = None
+    profesional_dni: Optional[int] = None
+    profesional_apellido: Optional[str] = None
+    profesional_nombre: Optional[str] = None
     estado_turno: str
 
     model_config = {"from_attributes": True}
@@ -261,8 +248,22 @@ class UserOut(BaseModel):
 class DisponibilidadOut(BaseModel):
     id: int
     dia: str
-    hora: time
-    servicios: list[dict] = Field(default_factory=list)
+    hora: str # para el output, JSON no reconoce el tipo time y por eso se lo envía como string
+    cant_turnos_max: int
+
+    model_config = {"from_attributes": True}
+
+class ServicioOut(BaseModel):
+    id: int
+    nombre: str
+    duracion: Optional[int] = None
+    precio: Optional[Decimal] = None
+    aclaracion: Optional[str] = None
+    profesional_id: Optional[int] = None
+    profesional_dni: Optional[int] = None
+    profesional_apellido: Optional[str] = None
+    profesional_nombre: Optional[str] = None
+    disponibilidades: list[DisponibilidadOut] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -279,7 +280,6 @@ class EmpresaPanelOut(BaseModel):
     servicios: list[ServicioOut]
     turnos: list[TurnoEmpresaOut] = Field(default_factory=list)
     miembros: list[UserOut] = Field(default_factory=list)
-    disponibilidades: list[DisponibilidadOut] = Field(default_factory=list)
     rol: str
 
     model_config = {"from_attributes": True}
@@ -321,15 +321,32 @@ class DisponibilidadServicio(BaseModel):
     
     model_config = {"from_attributes": True}
 
+# Este schema sirve tanto para actualizar un servicio existente como para crearlo (por eso el id es opcional)
 class ServicioUpdate(BaseModel):
     id: Optional[int] = None # Si se quiere actualizar uno existente
     nombre: str
     duracion: int
     precio: float
     aclaracion: Optional[str] = None
-    disponibilidades: list[DisponibilidadServicio] # Lista de disponibilidades por días
+    profesional_id: Optional[int] = None
+    disponibilidades: list[DisponibilidadServicio] = Field(default_factory=list) # Lista de disponibilidades por días (lista de mínimo 7 elementos)
     
     model_config = {"from_attributes": True}
+
+'''
+Formato JSON de ServicioUpdate:
+{
+    "id": 1,
+    "nombre": "Corte",
+    "duracion": 30,
+    "precio": 100,
+    "aclaracion": Servicio de corte de pelo,
+    "profesional_id": 8,
+    "disponibilidades": [
+        {"dia": "Lunes", "hora_inicio": "09:00", "hora_fin": "11:00", "cant_max": 3}
+    ]
+}
+'''
 
 class ServiciosUpdateIn(BaseModel):
     servicios: list[ServicioUpdate]
@@ -340,15 +357,3 @@ class ServiciosDeleteIn(BaseModel):
     servicios: list[int] # IDs de servicios a eliminar
 
     model_config = {"from_attributes": True}
-
-'''
-{
-    "id": 1,
-    "nombre": "Corte",
-    "duracion": 30,
-    "precio": 100,
-    "disponibilidades": [
-        {"dia": "Lunes", "hora_inicio": "09:00", "hora_fin": "11:00", "cant_max": 3}
-    ]
-}
-'''

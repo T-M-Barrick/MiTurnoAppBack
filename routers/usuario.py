@@ -16,7 +16,7 @@ router = APIRouter(prefix="/users", tags=["Usuarios"])
 # tags=["Usuarios"] sirve para organizar la documentación automática de Swagger (/docs).
 
 # Crear usuario
-@router.post("/", response_model=schemas.UserConRolesOut) # @router.post("/users/") indica que esta función responde a POST en /users/.
+@router.post("/") # @router.post("/users/") indica que esta función responde a POST en /users/.
 def create_user(user: schemas.UserCreate, response: Response, db: Session = Depends(get_db)):
     """
     Crea un nuevo usuario en la base de datos (registro).
@@ -44,13 +44,10 @@ def create_user(user: schemas.UserCreate, response: Response, db: Session = Depe
         samesite=variables.COOKIE_SAMESITE,
         max_age=60*variables.ACCESS_TOKEN_EXPIRE_MINUTES)
 
-    # Convertimos el objeto de clase Usuario SQLAlchemy al objeto de clase UsuarioLoginOut de Pydantic
-    us = auxiliares.convertir_orm_pydantic_usuario(user)
-
-    return schemas.UserConRolesOut(usuario=us, roles=[])
+    return {"ok": True}
 
 # Usuario se loguea
-@router.post("/login", response_model=schemas.UserConRolesOut)
+@router.post("/login")
 def login_user(user: schemas.UserLogin, response: Response, db: Session = Depends(get_db)):
     db_user = autenticacion.authenticate(db, user.email, user.password) # db_user es un objeto de clase Usuario de SQLAlchemy
     if not db_user:
@@ -71,37 +68,33 @@ def login_user(user: schemas.UserLogin, response: Response, db: Session = Depend
         samesite=variables.COOKIE_SAMESITE,
         max_age=60*variables.ACCESS_TOKEN_EXPIRE_MINUTES)
     
-    user = crud.get_user(db, db_user.id) # user ahora es un objeto de clase Usuario (más completo que db_user (con sus relationships)) de SQLAlchemy
-    turnos = crud.get_turnos(db, db_user.id)
-    
-    us = auxiliares.convertir_orm_pydantic_usuario(user, turnos_del_usuario=turnos) # us es un objeto de clase UsuarioLoginOut de Pydantic
+    return {"ok": True}
 
-    # Traer roles en empresas
-    roles = db.query(models.Miembro_Empresa).filter_by(usuario_id=db_user.id).all()
-
-    lista_roles = [RolEmpresaOut(rol=m.rol, empresa_id=m.empresa_id, 
-        nombre=m.empresa.nombre) for m in roles] # lista_roles es una lista de objetos de clase RolEmpresaOut de Pydantic
-
-    return UserConRolesOut(usuario=us, roles=lista_roles) # Devuelve lista vacía si no trabaja en ninguna empresa
-
-@router.get("/me", response_model=schemas.UserConRolesOut)
+@router.get("/me", response_model=schemas.UserLoginOut)
 def me(current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
     '''
-    Esto es para si abre la app o dominio y ya estaba logueado y el navegador ya tiene 
-    la cookie y asi el usuario no tiene que poner de vuelta la contraseña y el email.
+    Esto es para que cuando el creat o login del el OK, el navegador pida los datos del
+    usuario para el HTML del panel del usuario.
+    También se usa para que el usuario entre a su panel de una cuando abra la app o dominio y ya estaba logueado y 
+    el navegador ya tiene la cookie y así el usuario no tiene que poner de vuelta la contraseña y el email.
     '''
     user = crud.get_user(db, current_user.id)
     turnos = crud.get_turnos(db, current_user.id)
     
     us = auxiliares.convertir_orm_pydantic_usuario(user, turnos_del_usuario=turnos) # us es un objeto de clase UsuarioLoginOut de Pydantic
 
+    return us
+
+@router.get("/mis_empresas", response_model=list[schemas.RolEmpresaOut])
+def get_roles(current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
+
     # Traer roles en empresas
     roles = db.query(models.Miembro_Empresa).options(joinedload(models.Miembro_Empresa.empresa)).filter_by(usuario_id=current_user.id).all()
 
-    lista_roles = [RolEmpresaOut(rol=m.rol, empresa_id=m.empresa_id, 
+    lista_roles = [schemas.RolEmpresaOut(rol=m.rol, empresa_id=m.empresa_id, 
         nombre=m.empresa.nombre) for m in roles] # lista_roles es una lista de objetos de clase RolEmpresaOut de Pydantic
-
-    return schemas.UserConRolesOut(usuario=us, roles=lista_roles)
+    
+    return lista_roles
 
 # Usuario cierra sesión
 @router.post("/logout")
@@ -109,8 +102,8 @@ def logout_user(response: Response, current_user: models.Usuario = Depends(crud.
     db: Session = Depends(get_db), token: str = Cookie(default=None, alias=variables.COOKIE_NAME)):
     '''
     Mientras no se borre el historial ni las cookies del navegador (chrome por ejemplo),
-    la cookie seguirá existiendo hasta que pasen ese día (24 h).
-    Entonces, si el usuario cierra y vuelve a abrir el navegador, el token sigue estando ahí y sigue siendo válido.
+    la cookie seguirá existiendo hasta que pasen ese día (24 hs).
+    Entonces, si el usuario cierra y vuelve a abrir el navegador, el token seguirá estando ahí y seguirá siendo válido.
     Si la cookie se borra (por logout o por vencimiento), el backend ya no podrá validarlo → 401.
     2 usuarios distintos no pueden tener dos sesiones distintas del mismo dominio abiertas en el mismo tipo de navegador en la misma compu 
     (por más que sean 2 ventanas del mismo tipo de navegador).
@@ -152,8 +145,16 @@ def reservar_turno(reserva: schemas.ReservaTurnoIn, current_user: models.Usuario
     servicio = db.query(models.Servicio).filter(models.Servicio.id == reserva.servicio_id).first()
     if not servicio:
         raise HTTPException(status_code=404, detail="Servicio no encontrado")
+
+    turn = crud.reservar_turno(db, current_user.id, reserva.empresa_id, 
+        reserva.fecha_hora, reserva.servicio_id, reserva.profesional_id)
     
-    turno = crud.reservar_turno(db, current_user.id, reserva.empresa_id, reserva.fecha_hora, reserva.servicio_id, reserva.aclaracion_de_servicio)
+    turno = db.query(models.Turno).options(
+        joinedload(models.Turno.usuario),
+        joinedload(models.Turno.profesional),
+        joinedload(models.Turno.empresa).joinedload(models.Empresa.direccion),
+        joinedload(models.Turno.estado_turno_usuario),
+        joinedload(models.Turno.estado_turno_empresa)).filter(models.Turno.id == turn.id).first()
 
     if isinstance(turno, models.Turno):
         turno_out = schemas.TurnoOut(
@@ -164,14 +165,15 @@ def reservar_turno(reserva: schemas.ReservaTurnoIn, current_user: models.Usuario
                 domicilio=empresa.direccion.domicilio,
                 lat=empresa.direccion.lat,
                 lng=empresa.direccion.lng,
-                piso=empresa.direccion.piso,
-                departamento=empresa.direccion.departamento,
                 aclaracion=empresa.direccion.aclaracion),
             fecha_hora=turno.fecha_hora,
             nombre_de_servicio=turno.nombre_de_servicio,
             duracion=turno.duracion,
             precio=turno.precio,
             aclaracion_de_servicio=turno.aclaracion_de_servicio,
+            profesional_dni=turno.profesional.dni if turno.profesional else None,
+            profesional_apellido=turno.profesional.apellido if turno.profesional else None,
+            profesional_nombre=turno.profesional.nombre if turno.profesional else None,
             estado_turno=turno.estado_turno_usuario.estado)
         return schemas.TurnoReservadoOut(message="Turno reservado con éxito", turno=turno_out)
     if isinstance(turno, str):
@@ -208,38 +210,53 @@ def get_empresas(query: str, current_user: models.Usuario = Depends(crud.get_cur
                 domicilio=e.direccion.domicilio,
                 lat=e.direccion.lat,
                 lng=e.direccion.lng,
-                piso=e.direccion.piso,
-                departamento=e.direccion.departamento,
                 aclaracion=e.direccion.aclaracion),
             servicios=list({s.nombre for s in e.servicios}) # Evita duplicados
         ))
     return resultados # resultados es una lista de objetos de clase EmpresaOut de Pydantic
 
 # Se envía al hacer click en la empresa
-@router.get("/empresas/{empresa_id}/turnos_disponibles") # No hay schema Pydantic en este endpoint
-def get_turnos_disponibles_empresa(empresa_id: int, current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
-    emp_disps = crud.get_turnos_disponibles_empresa(db, empresa_id) # emp_disps es una lista de objetos de clase Emp_Disp de SQLAlchemy
-    if not emp_disps:
+@router.get("/empresas/{empresa_id}/turnos_disponibles", response_model=list[schemas.ServicioOut])
+def get_turnos_disponibles_empresa(empresa_id: int, current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)): 
+    servicios = crud.get_turnos_disponibles_empresa(db, empresa_id) # servicios es una lista de objetos de clase Servicio de SQLAlchemy
+    if not servicios:
         raise HTTPException(status_code=404, detail="No hay turnos disponibles para esta empresa")
-    
-    turnos_disponibles = []
-    servicios_dict = {}
 
-    for ed in emp_disps:  # ed es un objeto Emp_Disp
-        servicios_ids = []
-        for eds in ed.servicios:  # eds es un objeto Emp_Disp_Ser
-            s = eds.servicio  # s es el objeto Servicio
-            servicios_dict[s.id] = {"id": s.id, "nombre_de_servicio": s.nombre, "duracion": s.duracion, 
-                                    "precio": s.precio, "aclaracion_de_servicio": s.aclaracion}
-            servicios_ids.append(s.id)
+    servicios_out = []
 
-        turnos_disponibles.append({
-            "id": ed.id,
-            "dia": ed.disponibilidad.dia,
-            "hora": ed.disponibilidad.hora.strftime("%H:%M"), # Esto se hace porque no pasa primero por la validación y conversión de Pydantic (atributo tipo time)
-            "servicios": servicios_ids})
+    for s in servicios:
+        disponibilidades_out = []
 
-    return {"empresa_id": empresa_id, "turnos_disponibles": turnos_disponibles, "servicios_dict": servicios_dict}
+        # recorrer todas las disponibilidades asociadas
+        for sd in s.ser_disps:
+            d = sd.disponibilidad
+            disponibilidades_out.append(
+                DisponibilidadOut(
+                    id=d.id,
+                    dia=d.dia,
+                    hora=d.hora.strftime("%H:%M"), # para el output, JSON no reconoce el tipo time y por eso se lo envía como string
+                    cant_turnos_max=sd.cant_turnos_max
+                )
+            )
+        
+        profesional = s.profesional
+        us = profesional.usuario if profesional and profesional.usuario else None
+
+        servicio_out = ServicioOut(
+            id=s.id,
+            nombre=s.nombre,
+            duracion=s.duracion,
+            precio=s.precio,
+            aclaracion=s.aclaracion,
+            profesional_id=us.id if us else None,
+            profesional_dni=us.dni if us else None,
+            profesional_apellido=us.apellido if us else None,
+            profesional_nombre=us.nombre if us else None,
+            disponibilidades=disponibilidades_out)
+
+        servicios_out.append(servicio_out)
+
+    return servicios_out
 
 # Devuelve todos los turnos que el usuario ya completó (tabla Historial) (el primero devuelto será el más reciente)
 @router.get("/{user_id}/historial", response_model=schemas.HistorialResponse)
@@ -264,6 +281,9 @@ def get_historial_turnos(current_user: models.Usuario = Depends(crud.get_current
             duracion=h.duracion,
             precio=h.precio,
             aclaracion_de_servicio=h.aclaracion_de_servicio,
+            profesional_dni=h.profesional.dni if h.profesional else None,
+            profesional_apellido=h.profesional.apellido if h.profesional else None,
+            profesional_nombre=h.profesional.nombre if h.profesional else None,
             estado_turno=h.estado_turno_usuario.estado))
     
     respuesta = schemas.HistorialResponse(
@@ -291,14 +311,15 @@ def modificar_turno_usuario(turno_update: schemas.TurnoUpdate, current_user: mod
             domicilio=turno_modificado.empresa.direccion.domicilio,
             lat=turno_modificado.empresa.direccion.lat,
             lng=turno_modificado.empresa.direccion.lng,
-            piso=turno_modificado.empresa.direccion.piso,
-            departamento=turno_modificado.empresa.direccion.departamento,
             aclaracion=turno_modificado.empresa.direccion.aclaracion),
         fecha_hora=turno_modificado.fecha_hora,
         nombre_de_servicio=turno_modificado.nombre_de_servicio,
         duracion=turno_modificado.duracion,
         precio=turno_modificado.precio,
         aclaracion_de_servicio=turno_modificado.aclaracion_de_servicio,
+        profesional_dni=turno_modificado.profesional.dni if turno_modificado.profesional else None,
+        profesional_apellido=turno_modificado.profesional.apellido if turno_modificado.profesional else None,
+        profesional_nombre=turno_modificado.profesional.nombre if turno_modificado.profesional else None,
         estado_turno=turno_modificado.estado_turno_usuario.estado)
 
     return turno_out
@@ -307,7 +328,11 @@ def modificar_turno_usuario(turno_update: schemas.TurnoUpdate, current_user: mod
 @router.delete("/{user_id}/turnos/{turno_id}")
 def agregar_turno_historial_usuario(turno_id: int, current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
     user_id = current_user.id
+
     turno = db.query(models.Turno).options(
+        joinedload(models.Turno.usuario),
+        joinedload(models.Turno.profesional),
+        joinedload(models.Turno.empresa).joinedload(models.Empresa.direccion),
         joinedload(models.Turno.estado_turno_usuario),
         joinedload(models.Turno.estado_turno_empresa)).filter(models.Turno.id == turno_id, models.Turno.usuario_id == user_id).first()
     if not turno:

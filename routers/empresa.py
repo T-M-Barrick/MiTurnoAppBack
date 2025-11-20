@@ -14,19 +14,17 @@ router = APIRouter(prefix="/empresas", tags=["Empresas"])
 
 # Crear empresa
 @router.post("/") # @router.post("/empresas/") indica que esta función responde a POST en /empresas/.
-def create_empresa(empresa: schemas.EmpresaCreate, response: Response, db: Session = Depends(get_db)):
-    db_user = autenticacion.authenticate(db, empresa.email_de_usuario, empresa.password_de_usuario) # db_user es un objeto de clase Usuario de SQLAlchemy
-    if not db_user:
-        raise HTTPException(status_code=401, detail="Credenciales incorrectas")
-    
+def create_empresa(empresa: schemas.EmpresaCreate, response: Response, 
+    current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
+
     try:
         db_empresa = crud.create_empresa(db, empresa) # Devuelve un objeto de clase Empresa de SQLAlchemy
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     
-    crud.asignar_rol(db, db_user.id, db_empresa.id, 'propietario')
+    crud.asignar_rol(db, current_user.id, db_empresa.id, 'propietario')
 
-    return {"msg": "Empresa creada exitosamente"}
+    return {"msg": "Empresa creada exitosamente. Cierre sesión en su cuenta y vuelva a entrar para poder visualizar el panel de la empresa creada."}
 
 @router.get("/{empresa_id}/panel", response_model=schemas.EmpresaPanelOut)
 def acceder_empresa(empresa_id: int, current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
@@ -137,6 +135,9 @@ def get_historial_turnos(empresa_id: int, current_user: models.Usuario = Depends
             duracion=h.duracion,
             precio=h.precio,
             aclaracion_de_servicio=h.aclaracion_de_servicio,
+            profesional_dni=h.profesional.dni if h.profesional else None,
+            profesional_apellido=h.profesional.apellido if h.profesional else None,
+            profesional_nombre=h.profesional.nombre if h.profesional else None,
             estado_turno=h.estado_turno_usuario.estado))
     
     respuesta = schemas.HistorialEmpresaResponse(
@@ -173,6 +174,9 @@ def modificar_turno_empresa(
         duracion=turno_modificado.duracion,
         precio=turno_modificado.precio,
         aclaracion_de_servicio=turno_modificado.aclaracion_de_servicio,
+        profesional_dni=turno_modificado.profesional.dni if turno_modificado.profesional else None,
+        profesional_apellido=turno_modificado.profesional.apellido if turno_modificado.profesional else None,
+        profesional_nombre=turno_modificado.profesional.nombre if turno_modificado.profesional else None,
         estado_turno=turno_modificado.estado_turno_usuario.estado)
 
     return turno_out
@@ -186,8 +190,11 @@ def agregar_turno_historial_empresa(empresa_id: int, turno_id: int,
     crud.verificar_rol_en_empresa(db, current_user.id, empresa_id)
 
     turno = db.query(models.Turno).options(
-        joinedload(models.Turno.estado_turno_usuario),
-        joinedload(models.Turno.estado_turno_empresa)).filter(models.Turno.id == turno_id, models.Turno.empresa_id == empresa_id).first()
+            joinedload(models.Turno.usuario),
+            joinedload(models.Turno.profesional),
+            joinedload(models.Turno.empresa).joinedload(models.Empresa.direccion),
+            joinedload(models.Turno.estado_turno_usuario),
+            joinedload(models.Turno.estado_turno_empresa)).filter(models.Turno.id == turno_id, models.Turno.empresa_id == empresa_id).first()
     if not turno:
         raise HTTPException(status_code=404, detail="Turno no encontrado")
 

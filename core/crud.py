@@ -27,6 +27,7 @@ def get_historial_turnos(db: Session, u_e_id: int, fecha_hora_ultima: datetime, 
     # Traigo relaciones con los atributos definidos en la parte de relationship de la tabla Historial
     query = query.options(
         joinedload(models.Historial.usuario), # Usuario relacionado
+        joinedload(models.Historial.profesional), # Usuario relacionado (como profesional)
         joinedload(models.Historial.empresa), # Empresa relacionada
         joinedload(models.Historial.estado_turno_usuario), # Estado del turno del usuario
         joinedload(models.Historial.estado_turno_empresa) # Estado del turno de la empresa
@@ -58,6 +59,7 @@ def get_turnos(db: Session, u_e_id: int, user=True):
     # Traigo relaciones con los atributos definidos en la parte de relationship de la tabla Turno
     query = query.options(
         joinedload(models.Turno.usuario), # Usuario relacionado
+        joinedload(models.Turno.profesional), # Usuario relacionado (como profesional)
         joinedload(models.Turno.empresa).joinedload(models.Empresa.direccion), # Empresa relacionada
         joinedload(models.Turno.estado_turno_usuario), # Estado del turno del usuario
         joinedload(models.Turno.estado_turno_empresa) # Estado del turno de la empresa
@@ -91,6 +93,7 @@ def modificar_turno(db: Session, turno: models.Turno, nuevo_estado: str, user=Tr
     # Precargar relaciones importantes antes de devolver
     turno = db.query(models.Turno).options(
             joinedload(models.Turno.usuario),
+            joinedload(models.Turno.profesional),
             joinedload(models.Turno.empresa).joinedload(models.Empresa.direccion),
             joinedload(models.Turno.estado_turno_usuario),
             joinedload(models.Turno.estado_turno_empresa)).filter(models.Turno.id == turno.id).first()
@@ -123,6 +126,7 @@ def agregar_turno_historial(db: Session, turno: models.Turno, lista_estados, use
                 duracion=turno.duracion,
                 precio=turno.precio,
                 aclaracion_de_servicio=turno.aclaracion_de_servicio,
+                profesional_id=turno.profesional_id,
                 estado_turno_usuario_id=turno.estado_turno_usuario_id,
                 estado_turno_empresa_id=None)
 
@@ -136,6 +140,7 @@ def agregar_turno_historial(db: Session, turno: models.Turno, lista_estados, use
                 duracion=turno.duracion,
                 precio=turno.precio,
                 aclaracion_de_servicio=turno.aclaracion_de_servicio,
+                profesional_id=turno.profesional_id,
                 estado_turno_usuario_id=None,
                 estado_turno_empresa_id=turno.estado_turno_empresa_id)
 
@@ -242,8 +247,6 @@ def create_user(db: Session, user: schemas.UserCreate):
             domicilio=d.domicilio,
             lat=d.lat,
             lng=d.lng,
-            piso=d.piso,
-            departamento=d.departamento,
             aclaracion=d.aclaracion)
 
         db.add(db_dir)
@@ -346,8 +349,6 @@ def update_user(db: Session, user_id: int, user_update):
                 db_dir.domicilio = d.domicilio
                 db_dir.lat = d.lat
                 db_dir.lng = d.lng
-                db_dir.piso = d.piso
-                db_dir.departamento = d.departamento
                 db_dir.aclaracion = d.aclaracion
                 new_dir_ids.add(d.id)
             else:
@@ -356,8 +357,6 @@ def update_user(db: Session, user_id: int, user_update):
                     domicilio=d.domicilio,
                     lat=d.lat,
                     lng=d.lng,
-                    piso=d.piso,
-                    departamento=d.departamento,
                     aclaracion=d.aclaracion
                 )
                 db.add(db_dir)
@@ -425,77 +424,48 @@ def get_empresas(db: Session, query: str):
     return empresas # empresas es una lista de objetos de clase Empresa de SQLAlchemy
 
 def get_turnos_disponibles_empresa(db: Session, empresa_id: int):
-    emp_disps = (
-        db.query(models.Emp_Disp)
-        .filter(models.Emp_Disp.empresa_id == empresa_id)
+    servicios = (
+        db.query(models.Servicio)
+        .filter(models.Servicio.empresa_id == empresa_id)
         .options(
-            joinedload(models.Emp_Disp.disponibilidad),
-            joinedload(models.Emp_Disp.servicios).joinedload(models.Emp_Disp_Ser.servicio))
+            selectinload(models.Servicio.ser_disps).joinedload(models.Ser_Disp.disponibilidad),
+            joinedload(models.Servicio.profesional).joinedload(models.Miembro_Empresa.usuario))
         .all()
     )
 
-    return emp_disps # emp_disps es una lista de objetos de clase Emp_Disp de SQLAlchemy
+    return servicios # servicios es una lista de objetos de clase Servicio de SQLAlchemy
 
-def reservar_turno(db: Session, user_id: int, empresa_id: int, fecha_hora: datetime, servicio_id: int, aclaracion_de_servicio: bool):
+def reservar_turno(db: Session, user_id: int, empresa_id: int, fecha_hora: datetime, servicio_id: int, profesional_id: int):
     # Traer empresa y servicio
     empresa = db.query(models.Empresa).filter(models.Empresa.id == empresa_id).first()
     servicio = db.query(models.Servicio).filter(models.Servicio.id == servicio_id).first()
+
+    if not servicio:
+        raise HTTPException(status_code=400, detail="Servicio inexistente")
 
     dia_hora = auxiliares.extraer_dia_y_hora(fecha_hora)
     dia = dia_hora[0]
     hora = dia_hora[1]
 
-    # Devuelvo una lista de objetos Emp_Disp_Ser con la disponibilidad de esa empresa para con esos servicios en ese día y horario    
-    emp_disp_ser_list = db.query(models.Emp_Disp_Ser).join(models.Emp_Disp).join(models.Disponibilidad).filter(
-        models.Emp_Disp.empresa_id == empresa_id,
-        models.Emp_Disp_Ser.servicio_id == servicio_id,
-        models.Disponibilidad.dia == dia,
-        models.Disponibilidad.hora == hora).all()
+    if profesional_id == 0:
 
+        # Devuelvo una lista de objetos Servicio con la disponibilidad de esa empresa para con esos servicios en ese día y horario    
+        ser_list = db.query(models.Servicio).join(models.Ser_Disp).join(models.Disponibilidad).filter(
+            models.Servicio.empresa_id == empresa_id,
+            models.Servicio.nombre == servicio.nombre,
+            models.Disponibilidad.dia == dia,
+            models.Disponibilidad.hora == hora).all()
 
-    if not emp_disp_ser_list:
-        raise HTTPException(status_code=400, detail="No hay disponibilidad para este servicio en este horario")
+        if not ser_list:
+            raise HTTPException(status_code=400, detail="No hay disponibilidad para este servicio en este horario")
 
-    if aclaracion_de_servicio:
-        # Si tiene aclaración, la lista emp_disp_ser_list tendrá un solo objeto ya que estamos 
-        # haciendo referencia a un servicio en particular en una disponibiliad en particular
-        
-        # Voy a contar la cantidad de turnos existentes que se superponen con el turno que el cliente quiere sacar (nuevo turno) para este servicio
-        turnos_actuales = db.query(models.Turno).filter(
-            models.Turno.empresa_id == empresa_id, # turno de la misma empresa
-            models.Turno.nombre_de_servicio == servicio.nombre, # turno del mismo servicio
-            models.Turno.duracion == servicio.duracion, # turno del mismo servicio
-            models.Turno.precio == servicio.precio, # turno del mismo servicio
-            models.Turno.aclaracion_de_servicio == servicio.aclaracion, # turno del mismo servicio
-            models.Turno.fecha_hora + func.make_interval(mins=models.Turno.duracion) > fecha_hora, # el turno existente termina después de que empieza el nuevo turno
-            models.Turno.fecha_hora < fecha_hora + timedelta(minutes=servicio.duracion) # El turno existente empieza antes de que termine el nuevo turno
-            ).count()
-
-        emp_disp_ser = emp_disp_ser_list[0]
-        if turnos_actuales < emp_disp_ser.cant_turnos_max:
-            # Se puede reservar
-            turno = models.Turno(
-                usuario_id=user_id,
-                empresa_id=empresa_id,
-                fecha_hora=fecha_hora,
-                nombre_de_servicio=servicio.nombre,
-                duracion=servicio.duracion,
-                precio=servicio.precio,
-                aclaracion_de_servicio=servicio.aclaracion,
-                estado_turno_usuario_id=1, # confirmado
-                estado_turno_empresa_id=1, # confirmado
-                eliminado=None)            
-            db.add(turno)
-            db.commit()
-            db.refresh(turno)
-            return turno
-        else:
-            return 'No hay turnos disponibles en ese horario para el servicio elegido'    
-    else:
-        servicios_totales = [] # Lista de objetos [Servicio, Emp_Disp_Ser]
-        for eds in emp_disp_ser_list:
-            s = eds.servicio
-            servicios_totales.append([s, eds])
+        servicios_totales = [] # Lista de objetos [Servicio, Ser_Disp]
+        for s in ser_list:
+            sd = db.query(models.Ser_Disp).join(models.Disponibilidad).filter(
+                    models.Ser_Disp.servicio_id == s.id,
+                    models.Disponibilidad.dia == dia,
+                    models.Disponibilidad.hora == hora).first()
+            servicios_totales.append([s, sd])
         
         servicios_posibles = [] # Lista de objetos Servicio
         for i in servicios_totales:
@@ -507,12 +477,13 @@ def reservar_turno(db: Session, user_id: int, empresa_id: int, fecha_hora: datet
                 models.Turno.duracion == servicio_posible.duracion, # turno del mismo servicio
                 models.Turno.precio == servicio_posible.precio, # turno del mismo servicio
                 models.Turno.aclaracion_de_servicio == servicio_posible.aclaracion, # turno del mismo servicio
+                models.Turno.profesional_id == servicio_posible.miembro_empresa_id, # turno del mismo servicio
                 models.Turno.fecha_hora + func.make_interval(mins=models.Turno.duracion) > fecha_hora, # el turno existente termina después de que empieza el nuevo turno
                 models.Turno.fecha_hora < fecha_hora + timedelta(minutes=servicio_posible.duracion) # El turno existente empieza antes de que termine el nuevo turno
                 ).count()
 
-            eds = i[1]
-            if turnos_actuales < eds.cant_turnos_max:
+            sd = i[1]
+            if turnos_actuales < sd.cant_turnos_max:
                 servicios_posibles.append(servicio_posible)
                 
         if servicios_posibles:
@@ -527,6 +498,46 @@ def reservar_turno(db: Session, user_id: int, empresa_id: int, fecha_hora: datet
                 duracion=servicio_elegido.duracion,
                 precio=servicio_elegido.precio,
                 aclaracion_de_servicio=servicio_elegido.aclaracion,
+                profesional_id=servicio_elegido.miembro_empresa_id,
+                estado_turno_usuario_id=1, # confirmado
+                estado_turno_empresa_id=1, # confirmado
+                eliminado=None)            
+            db.add(turno)
+            db.commit()
+            db.refresh(turno)
+            return turno
+        else:
+            return 'No hay turnos disponibles en ese horario para el servicio elegido'
+
+    if profesional_id != 0:
+
+        sd = db.query(models.Ser_Disp).join(models.Disponibilidad).filter(
+                models.Ser_Disp.servicio_id == servicio.id,
+                models.Disponibilidad.dia == dia,
+                models.Disponibilidad.hora == hora).first()
+        
+        # Voy a contar la cantidad de turnos existentes que se superponen con el turno que el cliente quiere sacar (nuevo turno) para este servicio
+        turnos_actuales = db.query(models.Turno).filter(
+            models.Turno.empresa_id == empresa_id, # turno de la misma empresa
+            models.Turno.nombre_de_servicio == servicio.nombre, # turno del mismo servicio
+            models.Turno.duracion == servicio.duracion, # turno del mismo servicio
+            models.Turno.precio == servicio.precio, # turno del mismo servicio
+            models.Turno.aclaracion_de_servicio == servicio.aclaracion, # turno del mismo servicio
+            models.Turno.profesional_id == servicio.miembro_empresa_id, # turno del mismo servicio
+            models.Turno.fecha_hora + func.make_interval(mins=models.Turno.duracion) > fecha_hora, # el turno existente termina después de que empieza el nuevo turno
+            models.Turno.fecha_hora < fecha_hora + timedelta(minutes=servicio.duracion) # El turno existente empieza antes de que termine el nuevo turno
+            ).count()
+
+        if turnos_actuales < sd.cant_turnos_max:
+            turno = models.Turno(
+                usuario_id=user_id,
+                empresa_id=empresa_id,
+                fecha_hora=fecha_hora,
+                nombre_de_servicio=servicio.nombre,
+                duracion=servicio.duracion,
+                precio=servicio.precio,
+                aclaracion_de_servicio=servicio.aclaracion,
+                profesional_id=servicio.miembro_empresa_id,
                 estado_turno_usuario_id=1, # confirmado
                 estado_turno_empresa_id=1, # confirmado
                 eliminado=None)            
@@ -566,12 +577,12 @@ def get_empresa(db: Session, empresa_id: int):
     empresa = db.query(models.Empresa).options(
         joinedload(models.Empresa.direccion),
         joinedload(models.Empresa.telefonos),
-        selectinload(models.Empresa.servicios),
         selectinload(models.Empresa.miembros).joinedload(models.Miembro_Empresa.usuario),
-        (selectinload(models.Empresa.disponibilidades) # Trae todas las filas de Emp_Disp asociadas a la Empresa
-            .joinedload(models.Emp_Disp.disponibilidad) # Para cada Emp_Disp que ya se cargó, trae la Disponibilidad asociada
-            .selectinload(models.Emp_Disp.servicios) # Trae todas las filas de Emp_Disp_Ser asociadas a cada Emp_Disp.
-            .joinedload(models.Emp_Disp_Ser.servicio) # Para cada Emp_Disp_Ser, trae el objeto Servicio
+        (selectinload(models.Empresa.servicios) # Trae todas las filas de Servicio asociadas a la Empresa
+            .joinedload(models.Servicio.profesional) # Para cada Servicio que se cargó, trae el Miembro_Empresa asociado
+            .joinedload(models.Miembro_Empresa.usuario) # Para cada Miembro_Empresa que se cargó, trae el Usuario asociado
+            .selectinload(models.Servicio.ser_disps) # Para cada Servicio que se cargó, trae todas las filas de Ser_Disp
+            .joinedload(models.Ser_Disp.disponibilidad) # Para cada Ser_Disp que se cargó, trae la Disponibilidad asociada
         )
         ).filter(models.Empresa.id == empresa_id).first()
     return empresa # empresa es un objeto de clase Empresa de SQLAlchemy
@@ -602,8 +613,6 @@ def create_empresa(db: Session, empresa: schemas.EmpresaCreate):
         domicilio=empresa.direccion.domicilio,
         lat=empresa.direccion.lat,
         lng=empresa.direccion.lng,
-        piso=empresa.direccion.piso,
-        departamento=empresa.direccion.departamento,
         aclaracion=empresa.direccion.aclaracion)
 
     db.add(db_dir)
@@ -693,8 +702,6 @@ def update_empresa(db: Session, empresa_id: int, empresa_update: schemas.Empresa
                 db_dir.domicilio = d.domicilio
                 db_dir.lat = d.lat
                 db_dir.lng = d.lng
-                db_dir.piso = d.piso
-                db_dir.departamento = d.departamento
                 db_dir.aclaracion = d.aclaracion
             else:
                 # Reemplazar por nueva dirección
@@ -704,8 +711,6 @@ def update_empresa(db: Session, empresa_id: int, empresa_update: schemas.Empresa
                     domicilio=d.domicilio,
                     lat=d.lat,
                     lng=d.lng,
-                    piso=d.piso,
-                    departamento=d.departamento,
                     aclaracion=d.aclaracion)
                 db.add(new_dir)
         else:
@@ -715,8 +720,6 @@ def update_empresa(db: Session, empresa_id: int, empresa_update: schemas.Empresa
                 domicilio=d.domicilio,
                 lat=d.lat,
                 lng=d.lng,
-                piso=d.piso,
-                departamento=d.departamento,
                 aclaracion=d.aclaracion)
             db.add(new_dir)
 
@@ -735,57 +738,71 @@ def update_servicios_empresa(db: Session, empresa_id: int, servicios_update: sch
     for s in servicios_update:
         # Crear o actualizar servicio
         if s.id:
+            # Actualizar servicio
             servicio = db.query(models.Servicio).filter_by(id=s.id, empresa_id=empresa_id).first()
             if not servicio:
                 continue
             servicio.nombre = s.nombre
             servicio.duracion = s.duracion
             servicio.precio = s.precio
+            servicio.aclaracion = s.aclaracion or None # si no hay aclaración, guardamos None
+            servicio.miembro_empresa_id = s.profesional_id or None
         else:
+            # Crear servicio
             servicio = models.Servicio(
                 empresa_id=empresa_id,
                 nombre=s.nombre,
                 duracion=s.duracion,
                 precio=s.precio,
-                aclaracion=s.aclaracion)
+                aclaracion=s.aclaracion or None,
+                miembro_empresa_id=s.profesional_id or None)
             db.add(servicio)
             db.commit()
             db.refresh(servicio)
-        
-        # Procesar disponibilidades por día y rango horario
-        for disp_range in s.disponibilidades:
-            dia = disp_range.dia
-            inicio = disp_range.hora_inicio
-            fin = disp_range.hora_fin
-            cant_max = disp_range.cant_turnos_max
 
-            current_time = inicio
-            while current_time >= inicio and current_time <= fin:
-                # 1️⃣ Crear o traer disponibilidad
-                disp = db.query(models.Disponibilidad).filter_by(dia=dia, hora=current_time).first()
-                
-                # 2️⃣ Asociar con Emp_Disp
-                emp_disp = db.query(models.Emp_Disp).filter_by(empresa_id=empresa_id, disponibilidad_id=disp.id).first()
-                if not emp_disp:
-                    emp_disp = models.Emp_Disp(empresa_id=empresa_id, disponibilidad_id=disp.id)
-                    db.add(emp_disp)
+        if s.disponibilidades:
+        
+            # 1️⃣ Disponibilidades actuales del servicio en BD
+            ser_disp_actuales = db.query(models.Ser_Disp).filter_by(servicio_id=servicio.id).all()
+            actuales_ids = {sd.disponibilidad_id for sd in ser_disp_actuales}
+
+            # 2️⃣ Disponibilidades nuevas que vienen del front
+            nuevas_ids = set()
+            
+            # Procesar disponibilidades por día y rango horario
+            for disp_range in s.disponibilidades: # son mínimo 7 iteraciones
+                dia = disp_range.dia
+                inicio = disp_range.hora_inicio
+                fin = disp_range.hora_fin
+                cant_max = disp_range.cant_turnos_max
+
+                current_time = inicio
+                while current_time >= inicio and current_time <= fin:
+                    # Crear o traer disponibilidad
+                    disp = db.query(models.Disponibilidad).filter_by(dia=dia, hora=current_time).first()
+                    nuevas_ids.add(disp.id)
+                    
+                    # Asociar con Ser_Disp
+                    ser_disp = db.query(models.Ser_Disp).filter_by(servicio_id=servicio.id, disponibilidad_id=disp.id).first()
+                    if not ser_disp:
+                        ser_disp = models.Ser_Disp(servicio_id=servicio.id, disponibilidad_id=disp.id, cant_turnos_max=cant_max)
+                        db.add(ser_disp)
+                    else:
+                        ser_disp.cant_turnos_max = cant_max
+                    
                     db.commit()
-                    db.refresh(emp_disp)
-                
-                # 3️⃣ Asociar servicio a Emp_Disp_Ser con cant_turnos_max
-                emp_disp_ser = db.query(models.Emp_Disp_Ser).filter_by(emp_disp_id=emp_disp.id, servicio_id=servicio.id).first()
-                if not emp_disp_ser:
-                    emp_disp_ser = models.Emp_Disp_Ser(
-                        emp_disp_id=emp_disp.id,
-                        servicio_id=servicio.id,
-                        cant_turnos_max=cant_max)
-                    db.add(emp_disp_ser)
-                else:
-                    emp_disp_ser.cant_turnos_max = cant_max
-                
-                db.commit()
-                # Avanzar 5 minutos
-                current_time = (datetime.combine(datetime.today(), current_time) + timedelta(minutes=5)).time()
+                    # Avanzar 5 minutos
+                    current_time = (datetime.combine(datetime.today(), current_time) + timedelta(minutes=5)).time()
+            
+            # Eliminar disponibilidades que ya no están porque no fueron enviadas en el JSON
+            ids_a_eliminar = actuales_ids - nuevas_ids
+            if ids_a_eliminar:
+                db.query(models.Ser_Disp).filter(
+                    models.Ser_Disp.servicio_id == servicio.id,
+                    models.Ser_Disp.disponibilidad_id.in_(ids_a_eliminar)
+                ).delete(synchronize_session=False)
+
+            db.commit()
 
     db.refresh(db_emp)
     return db_emp
@@ -804,21 +821,14 @@ def eliminar_servicios_empresa(db: Session, empresa_id: int, servicios_delete: s
 
         if not servicio:
             continue  # Si el servicio no pertenece a la empresa o no existe, lo saltamos
+        
+        # 2️⃣ Eliminar asociaciones en Ser_Disp (relación servicio–disponibilidad)
+        ser_disps = db.query(models.Ser_Disp).filter(
+            models.Ser_Disp.servicio_id == servicio_id).all()
 
-        # 1️⃣ Eliminar asociaciones en Emp_Disp_Ser
-        emp_disp_sers = db.query(models.Emp_Disp_Ser).join(models.Emp_Disp).filter(
-            models.Emp_Disp.empresa_id == empresa_id,
-            models.Emp_Disp_Ser.servicio_id == servicio_id).all()
+        for sd in ser_disps:
+            db.delete(sd)
 
-        for eds in emp_disp_sers:
-            db.delete(eds)
-
-        # 2️⃣ Eliminar Emp_Disp sin servicios asociados
-        emp_disps = db.query(models.Emp_Disp).filter(models.Emp_Disp.empresa_id == empresa_id).all()
-        for ed in emp_disps:
-            tiene_servicios = db.query(models.Emp_Disp_Ser).filter(models.Emp_Disp_Ser.emp_disp_id == ed.id).count()
-            if tiene_servicios == 0:
-                db.delete(ed)
 
         # 3️⃣ Eliminar el servicio en sí
         db.delete(servicio)
