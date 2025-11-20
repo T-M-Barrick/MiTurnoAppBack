@@ -14,13 +14,18 @@ GEOREF_URL = "https://apis.datos.gob.ar/georef/api"
 
 load_dotenv() # carga las variables del .env al entorno
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD")
 FRONTEND_URL = os.getenv("FRONTEND_URL")
-DATABASE_URL = os.getenv("DATABASE_URL")
+
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT")
+DB_NAME = os.getenv("DB_NAME")
+
+DB_URL = f'mysql+mysqldb://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")

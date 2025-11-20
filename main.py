@@ -5,16 +5,20 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from routers import usuario, empresa
 from core.auxiliares import limpiar_tokens_expirados
 from core.variables import FRONTEND_URL
+from core.database import engine, Base # engine es la conexión a la base de datos, y Base es la clase base de los modelos.
 
 # Creamos la aplicación FastAPI y le da un título que se ve en la documentación automática (/docs).
 app = FastAPI(title="Reservas API")
+
+# Crear tablas en la base de datos
+Base.metadata.create_all(bind=engine) # No sobrescribe ninguna base ni ninguna tabla existente. Tampoco borra registros.
 
 # 🔥 CONFIGURACIÓN CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         FRONTEND_URL, # dominio de la pagina web (es el dominio donde está alojado el frontend)
-        "http://127.0.0.1:5501",  # tu frontend
+        "http://127.0.0.1:5501", # solo para desarrollo local
     ],
     allow_credentials=True, # necesario para usar cookies
     allow_methods=["*"], # permite todos los métodos (GET, POST, etc.)
@@ -34,9 +38,6 @@ scheduler = BackgroundScheduler()
 scheduler.add_job(limpiar_turnos_vencidos, "interval", hours=24)
 scheduler.start()
 '''
-
-'from core.database import engine, Base # engine es la conexión a la base de datos, y Base es la clase base de los modelos.'
-'Base.metadata.create_all(bind=engine) # Crear tablas en la base de datos'
 
 'uvicorn main:app --reload --port 8000'
 
