@@ -198,6 +198,7 @@ def get_current_user(token: str = Cookie(default=None, # token: str = Cookie() l
     Devuelve el objeto correspondiente según el rol que indique el JWT.
     Puede ser Usuario o Miembro con Empresa.
     """
+    print("Token recibido en cookie:", token)
     if token is None:
         raise HTTPException(status_code=401, detail="Token no encontrado")
 

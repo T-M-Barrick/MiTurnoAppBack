@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Date, Time, Float, Numeric, Boolean, UniqueConstraint, func
+from sqlalchemy import Column, Integer, BigInteger, String, ForeignKey, DateTime, Date, Time, Float, Numeric, Boolean, UniqueConstraint, func
 from sqlalchemy.orm import relationship
 
 from core.database import Base
@@ -83,7 +83,7 @@ class Telefono(Base):
     __tablename__ = "telefono"
 
     id = Column(Integer, primary_key=True, index=True)
-    numero = Column(Integer, nullable=False)
+    numero = Column(BigInteger, nullable=False)
     usuario_id = Column(Integer, ForeignKey("usuario.id")) # Relación muchos a uno con la tabla usuario (un usuario puede tener varios teléfonos)
     empresa_id = Column(Integer, ForeignKey("empresa.id")) # Relación muchos a uno con la tabla empresa (una empresa puede tener varios teléfonos)
 

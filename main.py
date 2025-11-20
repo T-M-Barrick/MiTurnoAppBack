@@ -14,6 +14,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         FRONTEND_URL, # dominio de la pagina web (es el dominio donde está alojado el frontend)
+        "http://127.0.0.1:5501",  # tu frontend
     ],
     allow_credentials=True, # necesario para usar cookies
     allow_methods=["*"], # permite todos los métodos (GET, POST, etc.)
