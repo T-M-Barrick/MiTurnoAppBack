@@ -1,10 +1,10 @@
-fastapi
-uvicorn
-sqlalchemy
-mysqlclient
-pydantic
+fastapi==0.116.1
+uvicorn==0.35.0
+SQLAlchemy==2.0.43
+mysqlclient==2.2.7
+pydantic==2.11.7
 passlib[bcrypt]==1.7.4 # passlib + las librerías extra para que bcrypt funcione.
 bcrypt==4.0.1
-python-dotenv
-apscheduler # es una librería que permite programar tareas que se ejecuten en momentos específicos o de forma periódica.
-python-jose[cryptography]
+python-dotenv==1.1.1
+APScheduler==3.11.0 # es una librería que permite programar tareas que se ejecuten en momentos específicos o de forma periódica.
+python-jose[cryptography]==3.5.0
