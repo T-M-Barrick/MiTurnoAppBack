@@ -35,8 +35,8 @@ scheduler = BackgroundScheduler()
 scheduler.add_job(limpiar_tokens_expirados, "interval", hours=24)
 scheduler.start()
 
-'''if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=PORT)'''
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=PORT)
 
 '''
 # Limpieza periódica de los turnos vencidos de la tabla Turno. Si están vencidos hace una semana o más, se pasan a la tabla Hsitorial
