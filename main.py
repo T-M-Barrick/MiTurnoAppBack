@@ -17,6 +17,14 @@ app = FastAPI(title="Reservas API")
 # Crear tablas en la base de datos
 'Base.metadata.create_all(bind=engine) # No sobrescribe ninguna base ni ninguna tabla existente. Tampoco borra registros.'
 # Ahora sí: test de conexión DESPUÉS de crear la app
+@app.get("/test-db")
+def test_db():
+    try:
+        with engine.connect() as conn:
+            return {"ok": True, "mensaje": "Conectado a la base!!!"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 @app.on_event("startup")
 def startup_event():
     print("🚀 FastAPI inició, probando conexión...")
