@@ -11,18 +11,24 @@ from core.database import engine, Base # engine es la conexión a la base de dat
 from core.models import (Usuario, Empresa, Miembro_Empresa, Telefono, Direccion, Dir_Usuario, Turno, Historial, Servicio,
     Estado_Turno_Usuario, Estado_Turno_Empresa, Favorito, Disponibilidad, Ser_Disp, Calificacion, Token, Blacklist)
 
-try:
-    with engine.connect() as conn:
-        print("✅ CONECTADO A LA BASE DE DATOS")
-except Exception as e:
-    print("❌ ERROR DE CONEXIÓN A LA BASE DE DATOS:", e)
-
 # Creamos la aplicación FastAPI y le da un título que se ve en la documentación automática (/docs).
 app = FastAPI(title="Reservas API")
 
 # Crear tablas en la base de datos
-Base.metadata.create_all(bind=engine) # No sobrescribe ninguna base ni ninguna tabla existente. Tampoco borra registros.
+'Base.metadata.create_all(bind=engine) # No sobrescribe ninguna base ni ninguna tabla existente. Tampoco borra registros.'
+# Ahora sí: test de conexión DESPUÉS de crear la app
+@app.on_event("startup")
+def startup_event():
+    print("🚀 FastAPI inició, probando conexión...")
+    try:
+        with engine.connect() as conn:
+            print("✅ CONECTADO A LA BASE DE DATOS")
+    except Exception as e:
+        print("❌ ERROR DE CONEXIÓN A LA BASE DE DATOS:", e)
 
+    # Crear tablas
+    Base.metadata.create_all(bind=engine)
+    print("📌 Tablas creadas (si no existían)")
 # 🔥 CONFIGURACIÓN CORS
 app.add_middleware(
     CORSMiddleware,
