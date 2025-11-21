@@ -5,13 +5,6 @@ from core.variables import DB_URL
 
 engine = create_engine(DB_URL)
 
-# 🔥 TEST DE CONEXIÓN
-try:
-    with engine.connect() as conn:
-        print("✅ CONECTADO A LA BASE DE DATOS")
-except Exception as e:
-    print("❌ ERROR DE CONEXIÓN A LA BASE DE DATOS:", e)
-
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()

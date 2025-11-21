@@ -9,6 +9,14 @@ from core.database import engine, Base # engine es la conexión a la base de dat
 from core.models import (Usuario, Empresa, Miembro_Empresa, Telefono, Direccion, Dir_Usuario, Turno, Historial, Servicio,
     Estado_Turno_Usuario, Estado_Turno_Empresa, Favorito, Disponibilidad, Ser_Disp, Calificacion, Token, Blacklist)
 
+try:
+    with engine.connect() as conn:
+        print("✅ CONECTADO A LA BASE DE DATOS")
+except Exception as e:
+    print("❌ ERROR DE CONEXIÓN A LA BASE DE DATOS:", e)
+
+app = FastAPI(...)
+
 # Creamos la aplicación FastAPI y le da un título que se ve en la documentación automática (/docs).
 app = FastAPI(title="Reservas API")
 
