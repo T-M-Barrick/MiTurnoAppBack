@@ -14,7 +14,7 @@ GEOREF_URL = "https://apis.datos.gob.ar/georef/api"
 
 load_dotenv() # carga las variables del .env al entorno
 
-PORT = int(os.getenv("PORT", 8000)) # puerto del back. Railway asigna PORT
+PORT = int(os.getenv("PORT", 9000)) # puerto del back. Railway asigna PORT
 
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
