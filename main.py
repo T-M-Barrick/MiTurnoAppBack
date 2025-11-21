@@ -15,8 +15,6 @@ try:
 except Exception as e:
     print("❌ ERROR DE CONEXIÓN A LA BASE DE DATOS:", e)
 
-app = FastAPI(...)
-
 # Creamos la aplicación FastAPI y le da un título que se ve en la documentación automática (/docs).
 app = FastAPI(title="Reservas API")
 
