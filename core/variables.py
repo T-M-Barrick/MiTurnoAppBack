@@ -20,11 +20,10 @@ EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD")
 FRONTEND_URL = os.getenv("FRONTEND_URL")
 
 DB_USER = os.getenv("DB_USER", "root")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "JebIxiOpKRXSgUdonjjOsMIQVxWzPviq")
-DB_HOST = os.getenv("DB_HOST", "mainline.proxy.rlwy.net")
-DB_PORT = int(os.getenv("DB_PORT", 21427))
+DB_PASSWORD = os.getenv("DB_PASSWORD", "zaUbBvZNnNWDUhKqBnkDqlQlwrmCmwTu")
+DB_HOST = os.getenv("DB_HOST", "mysql-gwzs.railway.internal")
+DB_PORT = int(os.getenv("DB_PORT", 3306))
 DB_NAME = os.getenv("DB_NAME", "railway")
-print(DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, DB_NAME)
 
 DB_URL = f'mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
 
