@@ -4,7 +4,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from routers import usuario, empresa
 from core.auxiliares import limpiar_tokens_expirados
-from core.variables import FRONTEND_URL
+from core.variables import PORT, FRONTEND_URL
 from core.database import engine, Base # engine es la conexión a la base de datos, y Base es la clase base de los modelos.
 from core.models import (Usuario, Empresa, Miembro_Empresa, Telefono, Direccion, Dir_Usuario, Turno, Historial, Servicio,
     Estado_Turno_Usuario, Estado_Turno_Empresa, Favorito, Disponibilidad, Ser_Disp, Calificacion, Token, Blacklist)
@@ -33,6 +33,9 @@ app.include_router(empresa.router)
 scheduler = BackgroundScheduler()
 scheduler.add_job(limpiar_tokens_expirados, "interval", hours=24)
 scheduler.start()
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=PORT)
 
 '''
 # Limpieza periódica de los turnos vencidos de la tabla Turno. Si están vencidos hace una semana o más, se pasan a la tabla Hsitorial
