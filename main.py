@@ -1,3 +1,5 @@
+print("ESTE MAIN SE ESTÁ EJECUTANDO")
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
