@@ -207,7 +207,8 @@ def get_current_user(token: str = Cookie(default=None, # token: str = Cookie() l
         entity_id = int(payload.get("sub"))
         jti = payload.get("jti")
     except JWTError:
-        raise HTTPException(status_code=401, detail="Token inválido o expirado")
+        print("JWTError:", e)  # <--- imprime el error exacto de la decodificación
+        raise HTTPException(status_code=401, detail=f"Token inválido o expirado: {str(e)}")
 
     # Chequeo en DB si está revocado
     if db.query(models.Blacklist).filter(models.Blacklist.jti == jti).first():
