@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
 from core.database import SessionLocal
-from core.schemas import UserLoginOut, DireccionOut, EmpresaOut, TurnoOut
+from core import schemas
 from core.models import Turno, Blacklist
 from core.variables import DIAS_NOMBRES
 
