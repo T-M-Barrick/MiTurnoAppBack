@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from routers import usuario, empresa
+from routers import usuario, empresa, geo
 from core.auxiliares import limpiar_tokens_expirados
 from core.variables import PORT, FRONTEND_URL
 from core.database import engine, Base # engine es la conexión a la base de datos, y Base es la clase base de los modelos.
@@ -30,6 +30,7 @@ app.add_middleware(
 
 app.include_router(usuario.router)
 app.include_router(empresa.router)
+app.include_router(geo.router)
 
 scheduler = BackgroundScheduler()
 scheduler.add_job(limpiar_tokens_expirados, "interval", hours=24)
