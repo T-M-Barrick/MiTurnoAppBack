@@ -206,7 +206,7 @@ def get_current_user(token: str = Cookie(default=None, # token: str = Cookie() l
         payload = jwt.decode(token, variables.SECRET_KEY, algorithms=[variables.ALGORITHM])
         entity_id = int(payload.get("sub"))
         jti = payload.get("jti")
-    except JWTError:
+    except JWTError as e:
         print("JWTError:", e)  # <--- imprime el error exacto de la decodificación
         raise HTTPException(status_code=401, detail=f"Token inválido o expirado: {str(e)}")
 
