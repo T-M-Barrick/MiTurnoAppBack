@@ -83,6 +83,53 @@ def get_coordenadas(provincia: str, municipio: str, localidad: str, calle: str, 
     except Exception as e:
         return {"error": "Falló la conexión con la API Georef", "detalle": str(e)}
 
+@router.get("/coordenadas")
+def get_coordenadas(provincia: str, municipio: str, localidad: str, calle: str | None = None, altura: str | None = None):
+    
+    try:
+        # Si no mandan calle/altura → buscar centroide de la localidad
+        if calle is None or altura is None:
+            r = requests.get(
+                f"{GEOREF_URL}/localidades",
+                params={
+                    "nombre": localidad,
+                    "provincia": provincia,
+                    "municipio": municipio,
+                    "max": 1
+                },
+                timeout=5
+            )
+            data = r.json()
+            
+            if "localidades" not in data or data.get("cantidad", 0) == 0:
+                return {"error": "No se encontraron coordenadas", "detalle": data}
+
+            return data["localidades"][0]["centroide"]
+
+        # Si mandan calle + altura → usar endpoint de calles
+        r = requests.get(
+            f"{GEOREF_URL}/direcciones",
+            params={
+                "provincia": provincia,
+                "departamento": municipio,
+                "localidad_censal": localidad,
+                "calle": calle,
+                "altura": altura,
+                "max": 1
+            },
+            timeout=5
+        )
+        data = r.json()
+
+        if "direcciones" not in data or data.get("cantidad", 0) == 0:
+            return {"error": "No se encontraron coordenadas", "detalle": data}
+
+        return data["direcciones"][0]["ubicacion"]
+
+    except Exception as e:
+        return {"error": "Falló la conexión con API Georef", "detalle": str(e)}
+
+
 @router.get("/reverse")
 def reverse_geocode(lat: float, lng: float):
     try:
