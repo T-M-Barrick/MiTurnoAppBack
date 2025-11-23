@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 
+import requests
+
 from core.database import SessionLocal
 from core import schemas
 from core.models import Turno, Blacklist
@@ -191,6 +193,81 @@ def extraer_dia_y_hora(fecha_hora: datetime):
     hora = fecha_hora.time() # hora del turno
     
     return nombre_dia, hora
+
+def buscar_localidad(provincia: str, municipio: str, localidad: str, url: str):
+    params = {
+        "provincia": provincia,
+        "municipio": municipio,
+        "nombre": localidad,
+        "max": 1
+    }
+
+    try:
+        r = requests.get(f"{url}/localidades", params=params, timeout=5)
+
+        # 1) Error de servidor
+        if r.status_code != 200:
+            return {"error": "Fallo en la API de georef"}
+
+        data = r.json().get("localidades", [])
+
+        # 2) No encontró nada
+        if not data:
+            return {"error": "Localidad no encontrada"}
+
+        loc = data[0]
+        centroide = loc.get("centroide")
+
+        if not centroide:
+            return {"error": "La localidad no tiene centroide"}
+
+        # 3) Respuesta final — OBJETO (como espera tu JS)
+        return {
+            "lat": centroide["lat"],
+            "lng": centroide["lon"]
+        }
+
+    except Exception as e:
+        return {"error": f"Excepción consultando georef: {str(e)}"}
+
+
+def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, calle: str, altura: str, url: str):
+    params = {
+        "provincia": provincia,
+        "departamento": municipio,
+        "localidad": localidad,
+        "direccion": f"{calle} {altura}",
+        "max": 1
+    }
+
+    try:
+        r = requests.get(f"{url}/direcciones", params=params, timeout=5)
+
+        # Error HTTP
+        if r.status_code != 200:
+            return {"error": "Fallo en la API de georef"}
+
+        data = r.json().get("direcciones", [])
+
+        # No encontró dirección
+        if not data:
+            return {"error": "Dirección no encontrada"}
+
+        d = data[0]
+        ubic = d.get("ubicacion")
+
+        if not ubic:
+            return {"error": "La dirección no tiene coordenadas"}
+
+        # Respuesta final coherente con tu frontend
+        return {
+            "lat": ubic["lat"],
+            "lng": ubic["lon"],
+            "domicilio": d.get("direccion", "")
+        }
+
+    except Exception as e:
+        return {"error": f"Excepción consultando georef: {str(e)}"}
 
 def limpiar_tokens_expirados():
     db = SessionLocal()
