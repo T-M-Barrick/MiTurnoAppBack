@@ -265,7 +265,11 @@ def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, ca
         # extraer lat y lon
         lat = d.get("lat")
         lon = d.get("lon")
-        calle = d.get("address", {}).get("road", "")
+
+        address = d.get("address", {})
+        # Intentar varios campos posibles donde Nominatim podría poner la calle
+        calle = address.get("road") or address.get("pedestrian") or address.get("footway") \
+                          or address.get("residential") or address.get("path") or ""
 
         return {
             "lat": lat,

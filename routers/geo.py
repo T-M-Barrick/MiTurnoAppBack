@@ -15,7 +15,11 @@ def get_provincias():
         if "provincias" not in data:
             return {"error": "La API Georef no devolvió provincias", "detalle": data}
 
-        return data["provincias"]
+        # Orden alfabético por nombre
+        provincias = data["provincias"]
+        provincias.sort(key=lambda x: x["nombre"])
+
+        return provincias
 
     except Exception as e:
         return {"error": "Falló la conexión con la API Georef", "detalle": str(e)}
@@ -33,7 +37,10 @@ def get_departamentos(provincia: str):
         if "departamentos" not in data:
             return {"error": "La API Georef no devolvió departamentos", "detalle": data}
 
-        return data["departamentos"]
+        departamentos = data["departamentos"]
+        departamentos.sort(key=lambda x: x["nombre"])
+
+        return departamentos
 
     except Exception as e:
         return {"error": "Falló la conexión con la API Georef", "detalle": str(e)}
@@ -51,7 +58,10 @@ def get_localidades(provincia: str, municipio: str):
         if "localidades" not in data:
             return {"error": "La API Georef no devolvió localidades", "detalle": data}
 
-        return data["localidades"]
+        localidades = data["localidades"]
+        localidades.sort(key=lambda x: x["nombre"])
+
+        return localidades
 
     except Exception as e:
         return {"error": "Falló la conexión con la API Georef", "detalle": str(e)}
