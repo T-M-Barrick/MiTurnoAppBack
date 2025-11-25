@@ -11,6 +11,7 @@ COLLATION_MYSQL_8 = 'utf8mb4_0900_ai_ci'
 DIAS_NOMBRES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 
 GEOREF_URL = "https://apis.datos.gob.ar/georef/api"
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 
 load_dotenv() # carga las variables del .env al entorno
 

@@ -2,7 +2,7 @@ import requests
 from fastapi import APIRouter, Depends
 
 from core.auxiliares import buscar_localidad, buscar_direccion_completa
-from core.variables import GEOREF_URL
+from core.variables import GEOREF_URL, NOMINATIM_URL
 
 router = APIRouter(prefix="/georef", tags=["Geo"])
 
@@ -72,7 +72,7 @@ def get_coordenadas(
             localidad=localidad,
             calle=calle,
             altura=altura,
-            url=GEOREF_URL
+            url=NOMINATIM_URL
         )
 
     # Caso contrario → buscar solo localidad
@@ -80,5 +80,5 @@ def get_coordenadas(
         provincia=provincia,
         municipio=municipio,
         localidad=localidad,
-        url=GEOREF_URL
+        url=NOMINATIM_URL
     )
