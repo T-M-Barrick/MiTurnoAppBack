@@ -195,82 +195,86 @@ def extraer_dia_y_hora(fecha_hora: datetime):
     return nombre_dia, hora
 
 def buscar_localidad(provincia: str, municipio: str, localidad: str, url: str):
-    params = {
-        "provincia": provincia,
-        "municipio": municipio,
-        "nombre": localidad,
-        "max": 1
-    }
-
+    """
+    Busca las coordenadas de una localidad usando Nominatim (OpenStreetMap).
+    Devuelve lat y lng.
+    """
     try:
-        r = requests.get(f"{url}/localidades", params=params, timeout=5)
+        # Construir consulta completa
+        query = f"{localidad}, {municipio}, {provincia}, Argentina"
 
-        # 1) Error de servidor
+        params = {
+            "q": query,
+            "format": "json",
+            "limit": 1
+        }
+
+        r = requests.get(url, params=params, timeout=5, headers={"User-Agent": "MiApp/1.0"})
+
         if r.status_code != 200:
-            return {"error": "Fallo en la API de georef"}
+            return {"error": "Fallo en la API", "detalle": r.text}
 
-        data = r.json().get("localidades", [])
+        resultados = r.json()
 
-        # 2) No encontró nada
-        if not data:
+        if not resultados:
             return {"error": "Localidad no encontrada"}
 
-        loc = data[0]
-        centroide = loc.get("centroide")
+        loc = resultados[0]
+        lat = loc.get("lat")
+        lon = loc.get("lon")
 
-        if not centroide:
-            return {"error": "La localidad no tiene centroide"}
+        if not lat or not lon:
+            return {"error": "La localidad no tiene coordenadas"}
 
-        # 3) Respuesta final — OBJETO (como espera tu JS)
         return {
-            "lat": centroide["lat"],
-            "lng": centroide["lon"]
+            "lat": lat,
+            "lng": lon
         }
 
     except Exception as e:
-        return {"error": f"Excepción consultando georef: {str(e)}"}
+        return {"error": f"Excepción consultando la API: {str(e)}"}
 
 def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, calle: str, altura: str, url: str):
-    params = {
-        "provincia": provincia,
-        "departamento": municipio,
-        "localidad": localidad,
-        "direccion": f"{calle} {altura}",
-        "max": 1
-    }
-
+    """
+    Busca coordenadas y dirección completa usando la URL que le pases.
+    Si la URL es de Nominatim, hace forward geocoding (calle + altura → lat/lon).
+    """
     try:
-        r = requests.get(f"{url}/direcciones", params=params, timeout=5)
+        # Construir la dirección completa
+        direccion_completa = f"{calle} {altura}, {localidad}, {municipio}, {provincia}, Argentina"
+
+        # Parámetros según Nominatim
+        params = {
+            "q": direccion_completa,
+            "format": "json",
+            "limit": 1
+        }
+
+        r = requests.get(url, params=params, timeout=5, headers={"User-Agent": "MiApp/1.0"})
 
         if r.status_code != 200:
-            return {"error": "Fallo en la API de georef"}
-        
-        print(r.url)
-        print(r.json())
+            return {"error": "Fallo en la API", "detalle": r.text}
 
-        data = r.json().get("direcciones", [])
+        resultados = r.json()
 
-        if not data:
+        if not resultados:
             return {"error": "dirección no encontrada"}
 
-        d = data[0]
-        ubic = d.get("ubicacion")
+        d = resultados[0]
 
-        if not ubic:
-            return {"error": "La dirección no tiene coordenadas"}
-
-        # Extraer calle y altura que devuelve la API
-        calle = d.get("calle", "")
+        # extraer lat y lon
+        lat = d.get("lat")
+        lon = d.get("lon")
+        calle = d.get("address", {}).get("road", "")
 
         return {
-            "lat": ubic["lat"],
-            "lng": ubic["lon"],
+            "lat": lat,
+            "lng": lon,
             "calle": calle
         }
 
     except Exception as e:
-        return {"error": "Falló la API de georef", "detalle": str(e)}
-
+        return {"error": "Falló la API", "detalle": str(e)}
 
 def limpiar_tokens_expirados():
     db = SessionLocal()
