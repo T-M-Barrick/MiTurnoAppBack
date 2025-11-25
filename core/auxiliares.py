@@ -252,9 +252,6 @@ def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, ca
 
         r = requests.get(url, params=params, timeout=5, headers={"User-Agent": "MiApp/1.0"})
 
-        print(r.status_code)
-        print(r.json())  # <--- imprime todo el JSON
-
         if r.status_code != 200:
             return {"error": "Fallo en la API", "detalle": r.text}
 
@@ -285,7 +282,7 @@ def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, ca
         return {
             "lat": lat,
             "lng": lon,
-            "calle": calle
+            "calle": calle_nominatim
         }
 
     except Exception as e:
