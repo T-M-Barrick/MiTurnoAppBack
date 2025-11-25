@@ -251,8 +251,7 @@ def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, ca
         data = r.json().get("direcciones", [])
 
         if not data:
-            # fallback: devolver coordenadas de la localidad
-            return buscar_localidad(provincia, municipio, localidad, url)
+            return {"error": "dirección no encontrada"}
 
         d = data[0]
         ubic = d.get("ubicacion")
