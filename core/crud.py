@@ -105,7 +105,7 @@ def agregar_turno_historial(db: Session, turno: models.Turno, lista_estados, use
 
     # Esto me va a asegurar que el usuario o empresa tenga que cambiarle el estado a uno de los 
     # posibles para poder mover el turno a la tabla Historial y no que lo mueva sin haber cambiado 
-    # el estado previamente y de esta manera, el historial que de con los estados bien puestos
+    # el estado previamente y de esta manera, el historial quede con los estados bien puestos
     # (por seguridad si la petición de eliminación llega antes que la de cambio de estado)
     if user:
         if turno.estado_turno_usuario.estado not in lista_estados:

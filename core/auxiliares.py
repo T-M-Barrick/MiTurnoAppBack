@@ -230,26 +230,25 @@ def buscar_localidad(provincia: str, municipio: str, localidad: str, url: str):
     except Exception as e:
         return {"error": f"Excepción consultando georef: {str(e)}"}
 
-
 def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, calle: str, altura: str, url: str):
     params = {
         "provincia": provincia,
         "departamento": municipio,
         "localidad": localidad,
         "direccion": f"{calle} {altura}",
+        "aplanar": True,
+        "exacto": False,    # 🔥 permite coincidencias aproximadas
         "max": 1
     }
 
     try:
         r = requests.get(f"{url}/direcciones", params=params, timeout=5)
 
-        # Error HTTP
         if r.status_code != 200:
             return {"error": "Fallo en la API de georef"}
 
         data = r.json().get("direcciones", [])
 
-        # No encontró dirección
         if not data:
             return {"error": "Dirección no encontrada"}
 
@@ -259,15 +258,18 @@ def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, ca
         if not ubic:
             return {"error": "La dirección no tiene coordenadas"}
 
-        # Respuesta final coherente con tu frontend
+        # Extraer calle y altura que devuelve la API
+        calle = d.get("calle", "")
+
         return {
             "lat": ubic["lat"],
             "lng": ubic["lon"],
-            "domicilio": d.get("direccion", "")
+            "calle": calle
         }
 
     except Exception as e:
-        return {"error": f"Excepción consultando georef: {str(e)}"}
+        return {"error": "Falló la API de georef", "detalle": str(e)}
+
 
 def limpiar_tokens_expirados():
     db = SessionLocal()

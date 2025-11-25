@@ -64,7 +64,7 @@ def get_coordenadas(
     calle: str | None = None,
     altura: str | None = None
 ):
-    # 1) Si llega calle + altura → buscar dirección exacta
+    # Si llega calle + altura → buscar dirección exacta
     if calle and altura:
         return buscar_direccion_completa(
             provincia=provincia,
@@ -75,32 +75,10 @@ def get_coordenadas(
             url=GEOREF_URL
         )
 
-    # 2) Caso contrario → buscar solo localidad
+    # Caso contrario → buscar solo localidad
     return buscar_localidad(
         provincia=provincia,
         municipio=municipio,
         localidad=localidad,
         url=GEOREF_URL
     )
-
-@router.get("/reverse")
-def reverse_geocode(lat: float, lng: float):
-    try:
-        url = "https://nominatim.openstreetmap.org/reverse"
-        params = {
-            "format": "json",
-            "lat": lat,
-            "lon": lng,
-            "addressdetails": 1
-        }
-
-        r = requests.get(url, params=params, headers={"User-Agent": "MiApp"}, timeout=5)
-        data = r.json()
-
-        if "display_name" not in data:
-            return {"error": "No se pudo obtener dirección desde OSM", "detalle": data}
-
-        return {"domicilio": data["display_name"]}
-
-    except Exception as e:
-        return {"error": "Falló la conexión con OpenStreetMap", "detalle": str(e)}
