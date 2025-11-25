@@ -246,6 +246,9 @@ def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, ca
 
         if r.status_code != 200:
             return {"error": "Fallo en la API de georef"}
+        
+        print(r.url)
+        print(r.json())
 
         data = r.json().get("direcciones", [])
 
