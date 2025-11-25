@@ -235,7 +235,8 @@ def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, ca
         "provincia": provincia,
         "departamento": municipio,
         "localidad": localidad,
-        "direccion": f"{calle} {altura}",
+        "calles": [calle],
+        "altura": altura,
         "aplanar": True,
         "exacto": False,    # 🔥 permite coincidencias aproximadas
         "max": 1
@@ -253,7 +254,8 @@ def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, ca
         data = r.json().get("direcciones", [])
 
         if not data:
-            return {"error": "Dirección no encontrada"}
+            # fallback: devolver coordenadas de la localidad
+            return buscar_localidad(provincia, municipio, localidad, url)
 
         d = data[0]
         ubic = d.get("ubicacion")
