@@ -269,10 +269,18 @@ def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, ca
         lat = d.get("lat")
         lon = d.get("lon")
 
+        calle_nominatim = ""
         address = d.get("address", {})
-        # Intentar varios campos posibles donde Nominatim podría poner la calle
-        calle = address.get("road") or address.get("pedestrian") or address.get("footway") \
-                          or address.get("residential") or address.get("path") or ""
+        if address:
+            # Intentar varios campos posibles donde Nominatim podría poner la calle
+            calle_nominatim = address.get("road") or address.get("pedestrian") or address.get("footway") \
+                            or address.get("residential") or address.get("path") or ""
+        else:
+            # fallback: extraer de display_name
+            display_name = d.get("display_name", "")
+            partes = display_name.split(",")
+            if len(partes) >= 2:
+                calle_nominatim = partes[1].strip()
 
         return {
             "lat": lat,
