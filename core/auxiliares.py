@@ -236,8 +236,6 @@ def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, ca
         "departamento": municipio,
         "localidad": localidad,
         "direccion": f"{calle} {altura}",
-        "aplanar": True,
-        "exacto": False,    # 🔥 permite coincidencias aproximadas
         "max": 1
     }
 
