@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
-from sqlalchemy import Column, Integer, BigInteger, String, ForeignKey, DateTime, Date, Time, Float, Numeric, Boolean, UniqueConstraint, func
+from sqlalchemy import (Column, Integer, BigInteger, LargeBinary, String, ForeignKey, 
+    DateTime, Date, Time, Float, Numeric, Boolean, UniqueConstraint, func)
 from sqlalchemy.orm import relationship
 
 from core.database import Base
