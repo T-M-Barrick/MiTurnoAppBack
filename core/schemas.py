@@ -67,13 +67,14 @@ class EmpresaOut(BaseModel):
     calificacion: Optional[int] = None
     telefonos: list[int] = Field(default_factory=list)
     direccion: DireccionOut
-    servicios: list[str]
+    logo: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
 class TurnoOut(BaseModel):
     id: int
     empresa: str
+    logo_empresa: Optional[str] = None
     direccion: DireccionOut
     fecha_hora: datetime
     nombre_de_servicio: str
@@ -181,6 +182,7 @@ class EmpresaCreate(BaseModel):
     rubro2: Optional[str] = None
     telefonos: list[int] = Field(default_factory=list)
     direccion: DireccionIn # obligatorio al crear su empresa
+    logo: Optional[str] = None  # <-- string Base64
 
     model_config = {"from_attributes": True}
 
@@ -192,9 +194,9 @@ class EmpresaUpdate(BaseModel):
     rubro2: Optional[str] = None
     telefonos: Optional[list[list[int]]] = None  # [[id, numero], ...]
     direccion: Optional[DireccionUpdate] = None
+    logo: Optional[str] = None
 
     model_config = {"from_attributes": True}
-
 
 class HistorialEmpresaOut(BaseModel):
     usuario_dni: int
@@ -277,6 +279,7 @@ class EmpresaPanelOut(BaseModel):
     calificacion: Optional[int] = None
     telefonos: list[list[int]] = Field(default_factory=list)
     direccion: DireccionOut
+    logo: Optional[str] = None
     servicios: list[ServicioOut]
     turnos: list[TurnoEmpresaOut] = Field(default_factory=list)
     miembros: list[UserOut] = Field(default_factory=list)

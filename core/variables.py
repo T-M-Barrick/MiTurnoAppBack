@@ -13,6 +13,8 @@ DIAS_NOMBRES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado",
 GEOREF_URL = "https://apis.datos.gob.ar/georef/api"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 
+MAX_LOGO_SIZE = 10 * 1024  # 10 KB
+
 load_dotenv() # carga las variables del .env al entorno
 
 PORT = int(os.getenv("PORT", 8000)) # puerto del back. Railway asigna PORT

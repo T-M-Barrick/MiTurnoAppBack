@@ -37,7 +37,6 @@ def authenticate(session: Session, email: str, password: str):
     return None
 
 # ------------------ TOKEN JWT ------------------ #
-
 def create_access_token(data: dict, expires_delta: timedelta):
     to_encode = data.copy()
     jti = str(uuid4())
@@ -51,6 +50,21 @@ def create_access_token(data: dict, expires_delta: timedelta):
         to_encode["sub"] = str(to_encode["sub"])  # convertir a string
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+# ------------------ MAIL DE INVITACIÓN ------------------ #
+def send_invite_email(to_email: str, token: str, empresa_nombre: str, rol: str):
+    invite_link = f"{FRONTEND_URL}/aceptar_rol?token={token}"  # FRONTEND_URL puede ser tu URL de frontend
+    msg = MIMEText(f"Fuiste invitado a unirte a {empresa_nombre} como {rol}.\n"
+                   f"Hacé click aquí para aceptar: {invite_link}")
+                   
+    msg['Subject'] = f"Invitación a {empresa_nombre}"
+    msg['From'] = EMAIL_USER
+    msg['To'] = to_email
+
+    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        server.starttls()
+        server.login(EMAIL_USER, EMAIL_APP_PASSWORD)
+        server.send_message(msg)
 
 # ---------------- RECUPERAR CONTRASEÑA ---------------- #
 
@@ -73,20 +87,6 @@ def send_reset_email(to_email: str, token: str):
     reset_link = f"{FRONTEND_URL}/reset_password?token={token}"
     msg = MIMEText(f"Para resetear tu contraseña hacé click aquí: {reset_link}")
     msg['Subject'] = "Recuperar contraseña"
-    msg['From'] = EMAIL_USER
-    msg['To'] = to_email
-
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.starttls()
-        server.login(EMAIL_USER, EMAIL_APP_PASSWORD)
-        server.send_message(msg)
-
-def send_invite_email(to_email: str, token: str, empresa_nombre: str, rol: str):
-    invite_link = f"{FRONTEND_URL}/aceptar_rol?token={token}"  # FRONTEND_URL puede ser tu URL de frontend
-    msg = MIMEText(f"Fuiste invitado a unirte a {empresa_nombre} como {rol}.\n"
-                   f"Hacé click aquí para aceptar: {invite_link}")
-                   
-    msg['Subject'] = f"Invitación a {empresa_nombre}"
     msg['From'] = EMAIL_USER
     msg['To'] = to_email
 

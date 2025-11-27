@@ -406,7 +406,7 @@ def update_user(db: Session, user_id: int, user_update):
     return db_user
 
 # Devuelve lista de empresas por nombre y/o servicio
-def get_empresas(db: Session, query: str):
+def get_empresas(db: Session, query: str, lat: float, lng: float):
     empresas = (
         db.query(models.Empresa)
         .join(models.Servicio)  # Hace que cargue solo las empresas que tienen al menos un servicio asociado
@@ -421,7 +421,26 @@ def get_empresas(db: Session, query: str):
             joinedload(models.Empresa.servicios))
         .distinct().all() # Devuelve lista sin duplicados
     )
-    return empresas # empresas es una lista de objetos de clase Empresa de SQLAlchemy
+
+    if not empresas:
+        return []
+
+    # 2) Lógica de radios crecientes
+    radios = [2, 5, 10, 20, 50]  # kilómetros
+    resultados = []
+
+    for r in radios:
+        for e in empresas:
+            if not e.direccion or e.direccion.lat is None or e.direccion.lng is None:
+                continue
+
+            dist = auxiliares.distancia_km(lat, lng, e.direccion.lat, e.direccion.lng)
+
+            if dist <= r:
+                if e not in resultados:
+                    resultados.append(e)
+
+    return resultados # resultados es una lista de objetos de clase Empresa de SQLAlchemy
 
 def get_turnos_disponibles_empresa(db: Session, empresa_id: int):
     servicios = (
@@ -590,13 +609,18 @@ def get_empresa(db: Session, empresa_id: int):
 # Crear usuario
 def create_empresa(db: Session, empresa: schemas.EmpresaCreate):
 
+    logo_bytes = auxiliares.decodificar_logo(empresa.logo) if empresa.logo else None
+    if logo_bytes:
+        auxiliares.validar_logo_png(logo_bytes)
+
     # Crear el objeto de empresa
     db_empresa = models.Empresa(
         cuit=empresa.cuit,
         nombre=empresa.nombre,
         email=empresa.email,
         rubro=empresa.rubro,
-        rubro2=empresa.rubro2)
+        rubro2=empresa.rubro2,
+        logo=logo_bytes)
 
     db.add(db_empresa)
     db.commit()
@@ -655,7 +679,13 @@ def update_empresa(db: Session, empresa_id: int, empresa_update: schemas.Empresa
     # 1️⃣ Actualizar campos simples
     # ----------------------------
     for attr, value in empresa_update.dict(exclude_unset=True).items():
-        if attr not in ["telefonos", "direccion"]:
+        if attr == "logo" and value is not None:
+            # decodificar Base64 y guardar bytes en la DB
+            logo_bytes = auxiliares.decodificar_logo(value)
+            if logo_bytes:
+                auxiliares.validar_logo_png(logo_bytes)
+            setattr(db_emp, "logo", logo_bytes)
+        elif attr not in ["telefonos", "direccion"]:
             setattr(db_emp, attr, value)
     db.commit()
 

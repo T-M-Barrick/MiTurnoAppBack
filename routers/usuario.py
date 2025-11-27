@@ -160,6 +160,7 @@ def reservar_turno(reserva: schemas.ReservaTurnoIn, current_user: models.Usuario
         turno_out = schemas.TurnoOut(
             id=turno.id,
             empresa=empresa.nombre,
+            logo_empresa=auxiliares.codificar_logo(empresa.logo),
             direccion=schemas.DireccionOut(
                 id=empresa.direccion.id,
                 domicilio=empresa.direccion.domicilio,
@@ -189,8 +190,10 @@ def calificar_empresa(calificacion_recibida: schemas.Calificacion, current_user:
 
 # Devuelve lista de empresas (sin duplicados) con coincidencia parcial de nombre y/o rubros haciendo, por ejemplo, GET /users/search/empresa?query=peluq
 @router.get("/search/empresa", response_model=list[schemas.EmpresaOut])
-def get_empresas(query: str, current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
-    empresas = crud.get_empresas(db, query) # empresas es una lista de objetos de clase Empresa de SQLAlchemy
+def get_empresas(query: str, lat: float, lng: float, 
+    current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
+
+    empresas = crud.get_empresas(db, query, lat, lng) # empresas es una lista de objetos de clase Empresa de SQLAlchemy
     if not empresas:
         raise HTTPException(status_code=404, detail="No se encontraron empresas que coincidan con la búsqueda")
     
@@ -211,7 +214,7 @@ def get_empresas(query: str, current_user: models.Usuario = Depends(crud.get_cur
                 lat=e.direccion.lat,
                 lng=e.direccion.lng,
                 aclaracion=e.direccion.aclaracion),
-            servicios=list({s.nombre for s in e.servicios}) # Evita duplicados
+            logo=auxiliares.codificar_logo(e.logo)
         ))
     return resultados # resultados es una lista de objetos de clase EmpresaOut de Pydantic
 
@@ -306,6 +309,7 @@ def modificar_turno_usuario(turno_update: schemas.TurnoUpdate, current_user: mod
     turno_out = schemas.TurnoOut(
         id=turno_modificado.id,
         empresa=turno_modificado.empresa.nombre,
+        logo_empresa=auxiliares.codificar_logo(turno_modificado.empresa.logo),
         direccion=schemas.DireccionOut(
             id=turno_modificado.empresa.direccion.id,
             domicilio=turno_modificado.empresa.direccion.domicilio,

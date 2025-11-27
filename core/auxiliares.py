@@ -1,11 +1,15 @@
 from datetime import datetime, timedelta
+import math
+import base64
+import io
 
 import requests
+from PIL import Image
 
 from core.database import SessionLocal
 from core import schemas
 from core.models import Turno, Blacklist
-from core.variables import DIAS_NOMBRES
+from core.variables import DIAS_NOMBRES, MAX_LOGO_SIZE
 
 # Convierte un objeto de la clase Usuario de SQLAlchemy en uno de clase UsuarioLoginOut o UsuarioUpdateOut de Pydantic (y agrega turnos si tiene)
 def convertir_orm_pydantic_usuario(user, update=False, turnos_del_usuario=[]):
@@ -42,12 +46,13 @@ def convertir_orm_pydantic_usuario(user, update=False, turnos_del_usuario=[]):
                     lat=e.direccion.lat,
                     lng=e.direccion.lng,
                     aclaracion=e.direccion.aclaracion),
-                servicios=list({s.nombre for s in e.servicios}) # Evita duplicados
+                logo=codificar_logo(e.logo)
             ) for e in user.favoritos],
 
             turnos=[schemas.TurnoOut(
                 id=turn.id,
                 empresa=turn.empresa.nombre,
+                logo_empresa=codificar_logo(turn.empresa.logo),
                 direccion=schemas.DireccionOut(
                     id=turn.empresa.direccion.id,
                     domicilio=turn.empresa.direccion.domicilio,
@@ -97,7 +102,7 @@ def convertir_orm_pydantic_usuario(user, update=False, turnos_del_usuario=[]):
                     lat=e.direccion.lat,
                     lng=e.direccion.lng,
                     aclaracion=e.direccion.aclaracion),
-                servicios=list({s.nombre for s in e.servicios}) # Evita duplicados
+                logo=codificar_logo(e.logo)
             ) for e in user.favoritos]
         )
         
@@ -175,6 +180,7 @@ def convertir_orm_pydantic_empresa(empresa, miembro_rol):
         calificacion=empresa.calificacion,
         telefonos=telefonos,
         direccion=direccion_out,
+        logo=codificar_logo(empresa.logo),
         servicios=servicios_out,
         turnos=turnos_out,
         miembros=miembros_out,
@@ -287,6 +293,44 @@ def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, ca
 
     except Exception as e:
         return {"error": "Falló la API", "detalle": str(e)}
+
+# las coordenadas1 son las de la casa del usuario y las coordenadas2 son de la empresa que se está analizando
+def distancia_km(lat1, lng1, lat2, lng2):
+    R = 6371 # radio terrestre en km que sirve para la fórmula Haversine
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = (math.sin(dlat/2)**2 +
+         math.cos(math.radians(lat1)) *
+         math.cos(math.radians(lat2)) *
+         math.sin(dlng/2)**2)
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    return R * c
+
+def decodificar_logo(logo_base64: str) -> bytes:
+    """Decodifica un string Base64 a bytes y valida tamaño."""
+    try:
+        logo_bytes = base64.b64decode(logo_base64)
+        if len(logo_bytes) > MAX_LOGO_SIZE:
+            maximo = MAX_LOGO_SIZE // 1024
+            raise HTTPException(status_code=400, detail=f"Logo demasiado grande (máximo {maximo} KB)")
+        return logo_bytes
+    except Exception:
+        raise HTTPException(status_code=400, detail="Logo inválido")
+
+def codificar_logo(logo_bytes: bytes) -> str:
+    """Codifica bytes a Base64 para enviar al frontend."""
+    if not logo_bytes:
+        return None
+    return base64.b64encode(logo_bytes).decode("utf-8")
+
+def validar_logo_png(logo_bytes: bytes):
+    """Valida que los bytes correspondan a un PNG."""
+    try:
+        with Image.open(io.BytesIO(logo_bytes)) as img:
+            if img.format != "PNG":
+                raise HTTPException(status_code=400, detail="Solo se acepta PNG")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Logo inválido")
 
 def limpiar_tokens_expirados():
     db = SessionLocal()

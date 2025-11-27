@@ -50,9 +50,9 @@ scheduler.start()
 
 'http://127.0.0.1:8000/docs'
 
-'https://github.com/agustiina18/pps-proyecto/tree/feat/integracion-backend' # No usar
+'https://github.com/agustiina18/pps-proyecto/tree/feat/integracion-backend' # usar este y no el de abajo de las chicas
 
-'https://github.com/Shir07/pps-proyecto2' # usar este y no el de arriba de las chicas
+'https://github.com/Shir07/pps-proyecto2' # No usar
 
 'https://github.com/EduDavMorales/miturno-api'
 

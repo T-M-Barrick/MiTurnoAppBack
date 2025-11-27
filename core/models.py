@@ -55,6 +55,7 @@ class Empresa(Base):
     rubro = Column(String(100))
     rubro2 = Column(String(100))
     calificacion = Column(Float(precision=2), default=0)
+    logo =  Column(LargeBinary)
 
     # Relationships
     telefonos = relationship("Telefono", back_populates="empresa")
