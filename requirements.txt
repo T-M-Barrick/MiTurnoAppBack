@@ -2,7 +2,7 @@ fastapi==0.116.1
 uvicorn==0.35.0
 SQLAlchemy==2.0.43
 PyMySQL==1.1.2
-pydantic==2.11.7
+pydantic[email]==2.11.7
 passlib[bcrypt]==1.7.4 # passlib + las librerías extra para que bcrypt funcione.
 bcrypt==4.0.1
 python-dotenv==1.1.1
