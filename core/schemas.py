@@ -2,7 +2,7 @@ from datetime import datetime, date, time
 from typing import Optional
 from decimal import Decimal
 
-from pydantic import BaseModel, Field, conint, validator
+from pydantic import BaseModel, EmailStr, Field, conint, validator
 
 # ------------------ SCHEMAS USUARIOS Y EMPRESAS ------------------ #
 
@@ -169,6 +169,11 @@ class TurnoReservadoOut(BaseModel):
 class Calificacion(BaseModel):
     empresa_id: int
     valor: conint(ge=0, le=10)  # solo permite enteros de 0 a 10
+
+    model_config = {"from_attributes": True}
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
 
     model_config = {"from_attributes": True}
 

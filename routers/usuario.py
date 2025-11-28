@@ -355,10 +355,10 @@ def agregar_turno_historial_usuario(turno_id: int, current_user: models.Usuario 
 
 # ---------------- FORGOT PASSWORD ---------------- #
 @router.post("/forgot_password")
-def forgot_password(email: str, db: Session = Depends(get_db)):
+def forgot_password(solicitud: schemas.ForgotPasswordRequest, db: Session = Depends(get_db)):
     try:
-        token = autenticacion.generate_password_reset_token(db, email)
-        autenticacion.send_reset_email(email, token)
+        token = autenticacion.generate_password_reset_token(db, solicitud.email)
+        autenticacion.send_reset_email(solicitud.email, token)
     except ValueError:
         pass  # No revelamos si el email existe o no
 
