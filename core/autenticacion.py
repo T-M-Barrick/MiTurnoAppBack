@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from jose import jwt
 
 from core.models import Usuario, Token
-from core.variables import EMAIL_USER, EMAIL_APP_PASSWORD, FRONTEND_URL, SECRET_KEY, ALGORITHM
+from core.variables import (EMAIL_USER, EMAIL_APP_PASSWORD, FRONTEND_URL, SECRET_KEY, ALGORITHM)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -95,7 +95,7 @@ def send_reset_email(to_email: str, token: str):
         server.login(EMAIL_USER, EMAIL_APP_PASSWORD)
         server.send_message(msg)
 
-# ---------------- RESETEAR CONTRASEÑA ---------------- #
+# ---------------- RESETEAR CONTRASEÑA (VÍA MAIL) ---------------- #
 def reset_password(session: Session, token: str, new_password: str):
 
     # Se busca el token en la tabla Token

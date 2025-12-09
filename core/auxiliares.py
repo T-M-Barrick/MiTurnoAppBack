@@ -6,9 +6,7 @@ import io
 import requests
 from PIL import Image
 
-from core.database import SessionLocal
 from core import schemas
-from core.models import Turno, Blacklist
 from core.variables import DIAS_NOMBRES, MAX_LOGO_SIZE
 
 # Convierte un objeto de la clase Usuario de SQLAlchemy en uno de clase UsuarioLoginOut o UsuarioUpdateOut de Pydantic (y agrega turnos si tiene)
@@ -51,6 +49,7 @@ def convertir_orm_pydantic_usuario(user, update=False, turnos_del_usuario=[]):
 
             turnos=[schemas.TurnoOut(
                 id=turn.id,
+                empresa_id=turn.empresa_id,
                 empresa=turn.empresa.nombre,
                 logo_empresa=codificar_logo(turn.empresa.logo),
                 direccion=schemas.DireccionOut(
@@ -67,7 +66,8 @@ def convertir_orm_pydantic_usuario(user, update=False, turnos_del_usuario=[]):
                 profesional_dni=turn.profesional.dni if turn.profesional else None,
                 profesional_apellido=turn.profesional.apellido if turn.profesional else None,
                 profesional_nombre=turn.profesional.nombre if turn.profesional else None,
-                estado_turno=turn.estado_turno_usuario.estado
+                estado_turno=turn.estado_turno_usuario.estado,
+                recordatorio=turn.recordatorio.minutos_antes if turn.recordatorio else None
             ) for turn in turnos_del_usuario]
         )   
     if update:
@@ -331,30 +331,3 @@ def validar_logo_png(logo_bytes: bytes):
                 raise HTTPException(status_code=400, detail="Solo se acepta PNG")
     except Exception:
         raise HTTPException(status_code=400, detail="Logo inválido")
-
-def limpiar_tokens_expirados():
-    db = SessionLocal()
-    try:
-        now = datetime.utcnow()
-        db.query(Blacklist).filter(Blacklist.expires_at < now).delete()
-        db.commit()
-    except Exception as e:
-        db.rollback()
-    finally:
-        db.close()
-
-'''
-from core.crud import eliminar_turno
-
-def limpiar_turnos_vencidos():
-    db = SessionLocal()
-    try:
-        hace_7_dias = datetime.now() - timedelta(days=7)
-        turnos_vencidos = db.query(models.Turno).filter(models.Turno.fecha_hora < hace_7_dias).all()
-        for turno in turnos_vencidos:
-            eliminar_turno(db, turno)
-    except Exception as e:
-        print(f"Error al limpiar turnos: {e}")  # o usar logging
-    finally:
-        db.close()
-'''

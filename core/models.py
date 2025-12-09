@@ -86,8 +86,8 @@ class Telefono(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     numero = Column(BigInteger, nullable=False)
-    usuario_id = Column(Integer, ForeignKey("usuario.id")) # Relación muchos a uno con la tabla usuario (un usuario puede tener varios teléfonos)
-    empresa_id = Column(Integer, ForeignKey("empresa.id")) # Relación muchos a uno con la tabla empresa (una empresa puede tener varios teléfonos)
+    usuario_id = Column(Integer, ForeignKey("usuario.id"), nullable=True) # Relación muchos a uno con la tabla usuario (un usuario puede tener varios teléfonos)
+    empresa_id = Column(Integer, ForeignKey("empresa.id"), nullable=True) # Relación muchos a uno con la tabla empresa (una empresa puede tener varios teléfonos)
 
     # Relationships
     usuario = relationship("Usuario", back_populates="telefonos")
@@ -97,7 +97,7 @@ class Direccion(Base):
     __tablename__ = "direccion"
 
     id = Column(Integer, primary_key=True, index=True)
-    empresa_id = Column(Integer, ForeignKey("empresa.id")) # NULL si pertenece a un usuario. Por defecto es nullable=True
+    empresa_id = Column(Integer, ForeignKey("empresa.id"), , nullable=True) # NULL si pertenece a un usuario
     domicilio = Column(String(255)) # El devuelto por Google Maps
     lat = Column(Float, nullable=False)
     lng = Column(Float, nullable=False)
@@ -123,10 +123,11 @@ class Turno(Base):
     duracion = Column(Integer) # minutos
     precio = Column(Numeric(10, 2))  # 10 dígitos, 2 decimales
     aclaracion_de_servicio = Column(String(255)) # cualquier aclaración o descripción
-    profesional_id = Column(Integer, ForeignKey("usuario.id"))
+    profesional_id = Column(Integer, ForeignKey("usuario.id"), nullable=True)
     estado_turno_usuario_id = Column(Integer, ForeignKey("estado_turno_usuario.id"), nullable=False)
     estado_turno_empresa_id = Column(Integer, ForeignKey("estado_turno_empresa.id"), nullable=False)
-    eliminado = Column(String(50)) # NULL si nadie lo movió a su historial. 'u' si lo movió a su historial el usuario. 'e' si lo movió a su historial la empresa. 
+    eliminado = Column(String(50)) # NULL si nadie lo movió a su historial. 'u' si lo movió a su historial el usuario. 'e' si lo movió a su historial la empresa.
+    recordatorio_id = Column(Integer, ForeignKey("recordatorio.id"), nullable=True)
 
     # Relationships
     usuario = relationship(
@@ -142,6 +143,7 @@ class Turno(Base):
     empresa = relationship("Empresa")
     estado_turno_usuario = relationship("Estado_Turno_Usuario")
     estado_turno_empresa = relationship("Estado_Turno_Empresa")
+    recordatorio = relationship("Recordatorio", back_populates="turnos")
 
 class Historial(Base):
     __tablename__ = "historial_turno"
@@ -154,12 +156,12 @@ class Historial(Base):
     duracion = Column(Integer) # minutos
     precio = Column(Numeric(10, 2))  # 10 dígitos, 2 decimales
     aclaracion_de_servicio = Column(String(255)) # cualquier aclaración o descripción
-    profesional_id = Column(Integer, ForeignKey("usuario.id"))
+    profesional_id = Column(Integer, ForeignKey("usuario.id"), nullable=True)
 
     # Al pasar a Historial, sin que lo haga el limpiador periódico, el estado del otro va a ser ser NULL y así cuando el usuario o empresa
     # pida su historial, no se van a pasar los que tengan NULL en su estado ya que significa que nunca eliminaron al turno.
     estado_turno_usuario_id = Column(Integer, ForeignKey("estado_turno_usuario.id"))
-    estado_turno_empresa_id= Column(Integer, ForeignKey("estado_turno_empresa.id"))
+    estado_turno_empresa_id = Column(Integer, ForeignKey("estado_turno_empresa.id"))
 
     # Relationships
     usuario = relationship(
@@ -185,7 +187,7 @@ class Servicio(Base):
     duracion = Column(Integer) # minutos
     precio = Column(Numeric(10, 2))  # 10 dígitos, 2 decimales
     aclaracion = Column(String(255)) # cualquier aclaración o descripción
-    miembro_empresa_id = Column(Integer, ForeignKey("miembro_empresa.id"))
+    miembro_empresa_id = Column(Integer, ForeignKey("miembro_empresa.id"), nullable=True)
 
     # Relationships
     empresa = relationship("Empresa", back_populates="servicios")
@@ -239,6 +241,25 @@ class Calificacion(Base):
 
     # Relationships
     empresa = relationship("Empresa", back_populates="calificaciones")
+
+class Recordatorio(Base):
+    __tablename__ = "recordatorio"
+
+    id = Column(Integer, primary_key=True, index=True)
+    minutos_antes = Column(Integer, nullable=False)
+
+    # Relationships
+    turnos = relationship("Turno", back_populates="recordatorio")
+
+class OTPCode(Base):
+    __tablename__ = "otp_code"
+
+    id = Column(Integer, primary_key=True, index=True)
+    usuario_id = Column(Integer, ForeignKey("usuario.id"), nullable=False)
+    code = Column(String(6), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False)
 
 class Token(Base):
     __tablename__ = "token_password"

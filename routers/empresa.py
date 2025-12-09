@@ -26,7 +26,7 @@ def create_empresa(empresa: schemas.EmpresaCreate, response: Response,
 
     return {"msg": "Empresa creada exitosamente. Cierre sesión en su cuenta y vuelva a entrar para poder visualizar el panel de la empresa creada."}
 
-@router.get("/{empresa_id}/panel", response_model=schemas.EmpresaPanelOut)
+@router.get("/{empresa_id}", response_model=schemas.EmpresaPanelOut)
 def acceder_empresa(empresa_id: int, current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
 
     # Verifico que el usuario que mandó la petición pertenezca a la empresa y devuelvo su rol
@@ -41,7 +41,7 @@ def acceder_empresa(empresa_id: int, current_user: models.Usuario = Depends(crud
 
     return emp # emp es un objeto de clase EmpresaPanelOut de Pydantic
 
-# Actualizar empresa (datos simples, telefonos y dirección)
+# Actualizar empresa (datos simples, teléfonos y dirección)
 @router.put("/{empresa_id}", response_model=schemas.EmpresaPanelOut)
 def update_empresa(empresa_id: int, empresa_update: schemas.EmpresaUpdate, 
     current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
@@ -62,7 +62,30 @@ def update_empresa(empresa_id: int, empresa_update: schemas.EmpresaUpdate,
 
     return emp # emp es un objeto de clase EmpresaPanelOut de Pydantic
 
-@router.put("/{empresa_id}/servicios", response_model=schemas.EmpresaPanelOut)
+@router.post("/{empresa_id}/servicios", response_model=schemas.EmpresaPanelOut)
+def crear_servicio_empresa(
+    empresa_id: int,
+    servicio_nuevo: schemas.ServicioCreate,
+    current_user: models.Usuario = Depends(crud.get_current_user),
+    db: Session = Depends(get_db)):
+
+    # Verificar que current_user sea propietario o gerente
+    current_user_rol = crud.verificar_rol_en_empresa(db, current_user.id, empresa_id)
+
+    if current_user_rol == 'empleado':
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Los empleados no pueden crear servicios.")
+    
+    db_emp = crud.crear_servicio_empresa(db, empresa_id, servicio_nuevo)
+    if not db_emp:
+        raise HTTPException(status_code=404, detail="Empresa no encontrada")
+    
+    empresa = crud.get_empresa(db, empresa_id) # empresa ahora es un objeto de clase Empresa (con sus relationships actualizadas) de SQLAlchemy
+    
+    emp = auxiliares.convertir_orm_pydantic_empresa(empresa, current_user_rol)
+
+    return emp # emp es un objeto de clase EmpresaPanelOut de Pydantic
+
+@router.patch("/{empresa_id}/servicios", response_model=schemas.EmpresaPanelOut)
 def update_servicios_empresa(
     empresa_id: int,
     servicios_update: schemas.ServiciosUpdateIn,
@@ -147,7 +170,7 @@ def get_historial_turnos(empresa_id: int, current_user: models.Usuario = Depends
     return respuesta
 
 # Modifica el estado de un turno de la tabla Turno y devuelve el turno con el estado modificado
-@router.put("/{empresa_id}/turnos/", response_model=schemas.TurnoEmpresaOut)
+@router.put("/{empresa_id}/turnos", response_model=schemas.TurnoEmpresaOut)
 def modificar_turno_empresa(
     empresa_id: int, 
     turno_update: schemas.TurnoUpdate, 
@@ -194,7 +217,8 @@ def agregar_turno_historial_empresa(empresa_id: int, turno_id: int,
             joinedload(models.Turno.profesional),
             joinedload(models.Turno.empresa).joinedload(models.Empresa.direccion),
             joinedload(models.Turno.estado_turno_usuario),
-            joinedload(models.Turno.estado_turno_empresa)).filter(models.Turno.id == turno_id, models.Turno.empresa_id == empresa_id).first()
+            joinedload(models.Turno.estado_turno_empresa),
+            joinedload(models.Turno.recordatorio)).filter(models.Turno.id == turno_id, models.Turno.empresa_id == empresa_id).first()
     if not turno:
         raise HTTPException(status_code=404, detail="Turno no encontrado")
 
@@ -202,11 +226,29 @@ def agregar_turno_historial_empresa(empresa_id: int, turno_id: int,
 
     if exito:
         # Mando el id para que el frontend lo elimine del front y lo pase a historial y así no tener que enviarle todos sus turnos de vuelta
-        return {"msg": "Turno movido al historial correctamente", "turno_id": turno_id}
+        return {"turno_id": turno_id}
     else:
         raise HTTPException(status_code=400, detail="Debe cambiar el estado antes de mover al historial al turno")
 
-@router.post("/{empresa_id}/invitar_empleado")
+@router.get("/{empresa_id}/turnos/estados", response_model=list[schemas.TurnoEstadoOut])
+def get_estados_turnos_empresa(empresa_id: int, 
+    current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
+
+    # Verifico que el usuario que mandó la petición pertenezca a la empresa
+    crud.verificar_rol_en_empresa(db, current_user.id, empresa_id)
+
+    turnos = db.query(models.Turno).options(
+        joinedload(models.Turno.estado_turno_empresa)).filter_by(empresa_id=empresa_id).all()
+
+    turnos_estados = []
+    for t in turnos:
+        turnos_estados.append(schemas.TurnoEstadoOut(
+            id=t.id,
+            estado=t.estado_turno_empresa.estado))
+
+    return turnos_estados
+
+@router.post("/{empresa_id}/invitaciones")
 def invitar_empleado(
     empresa_id: int,
     invitacion: schemas.InvitacionEmpleadoIn,
@@ -227,7 +269,21 @@ def invitar_empleado(
     usuario = db.query(models.Usuario).filter(models.Usuario.email == invitacion.usuario_email).first()
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    # Borrar cuando se haga lo del mail
+    ###################################
+    existe = db.query(models.Miembro_Empresa).filter_by(usuario_id=usuario.id, empresa_id=empresa_id).first()
+    if existe:
+        raise HTTPException(status_code=400, detail="Ya es miembro de esta empresa")
+    
+    nuevo_miembro = models.Miembro_Empresa(usuario_id=usuario.id, empresa_id=empresa_id, rol=invitacion.rol)
+    db.add(nuevo_miembro)
+    db.commit()
 
+    return {"message": "OK"}
+    ###################################
+
+    '''
     # Crear token JWT usando create_access_token
     token = autenticacion.create_access_token(
         data={"usuario_id": usuario.id, "empresa_id": empresa_id, "rol": invitacion.rol},
@@ -237,6 +293,7 @@ def invitar_empleado(
     send_invite_email(usuario.email, token, empresa_nombre=db.query(models.Empresa).get(empresa_id).nombre, rol=invitacion.rol)
 
     return {"message": f"Invitación enviada a {usuario_email} para el rol {invitacion.rol}"}
+    '''
 
 @router.post("/aceptar_rol")
 def aceptar_rol(token: str, db: Session = Depends(get_db)):
@@ -259,36 +316,36 @@ def aceptar_rol(token: str, db: Session = Depends(get_db)):
 
     return {"message": "OK"}
 
-@router.put("/{empresa_id}/modificar_rol")
-def modificar_rol(empresa_id: int, datos: schemas.ModificarRolIn, 
+@router.put("/{empresa_id}/miembros/{usuario_id}")
+def modificar_rol(empresa_id: int, usuario_id: int, dato: schemas.ModificarRolIn, 
     current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
 
-    # Verificar que current_user sea propietario o gerente
+    # Verificar que current_user sea propietario
     current_user_rol = crud.verificar_rol_en_empresa(db, current_user.id, empresa_id)
     if current_user_rol != 'propietario':
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tenés permisos para modificar roles.")
     
     # Traer el objeto de clase Miembro_Empresa al que se le modificará el rol
-    miembro_empresa = db.query(models.Miembro_Empresa).filter_by(usuario_id=datos.usuario_id, empresa_id=empresa_id).options(
+    miembro_empresa = db.query(models.Miembro_Empresa).filter_by(usuario_id=usuario_id, empresa_id=empresa_id).options(
         joinedload(models.Miembro_Empresa.usuario)).first()
     if not miembro_empresa:
         raise HTTPException(status_code=404, detail="Este usuario no pertenece a la empresa")
     
     # Modificar el rol
-    miembro_empresa.rol = datos.nuevo_rol
+    miembro_empresa.rol = dato.nuevo_rol
     db.commit()
 
-    return {"message": f"Rol de {miembro_empresa.usuario.apellido}, {miembro_empresa.usuario.nombre} modificado a {datos.nuevo_rol}"}
+    return {"message": f"Rol de {miembro_empresa.usuario.apellido}, {miembro_empresa.usuario.nombre} modificado a {dato.nuevo_rol}"}
 
-@router.delete("/{empresa_id}/eliminar_miembro")
-def eliminar_miembro(empresa_id: int, datos: schemas.EliminarMiembroIn, 
+@router.delete("/{empresa_id}/miembros/{usuario_id}")
+def eliminar_miembro(empresa_id: int, usuario_id: int, 
     current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
 
     # Verificar que current_user sea propietario o gerente
     current_user_rol = crud.verificar_rol_en_empresa(db, current_user.id, empresa_id)
 
     # Traer el objeto de clase Miembro_Empresa al que se le modificará el rol
-    miembro_empresa = db.query(models.Miembro_Empresa).filter_by(usuario_id=datos.usuario_id, empresa_id=empresa_id).options(
+    miembro_empresa = db.query(models.Miembro_Empresa).filter_by(usuario_id=usuario_id, empresa_id=empresa_id).options(
         joinedload(models.Miembro_Empresa.usuario)).first()
     if not miembro_empresa:
         raise HTTPException(status_code=404, detail="Este usuario no pertenece a la empresa")
