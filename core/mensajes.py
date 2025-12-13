@@ -94,7 +94,7 @@ def enviar_whatsapp_template(to_number, template_name, variables):
 
     data = {
         "messaging_product": "whatsapp",
-        "to": f"+54{to_number},
+        "to": f"+54{to_number}",
         "type": "template",
         "template": {
             "name": template_name,
