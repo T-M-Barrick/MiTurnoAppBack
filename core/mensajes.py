@@ -2,10 +2,46 @@ import random
 
 import requests
 from twilio.rest import Client
+from postmarker.core import PostmarkClient
 
-from core.variables import WHATSAPP_TOKEN, WHATSAPP_PHONE_ID, TEMPLATE_LANG, TWILIO_ACCOUNT_SID, TWILIO_TOKEN, TWILIO_TELEFONO
+from core.variables import (FRONTEND_URL, EMAIL, SERVER_API_TOKEN_POSTMARK, WHATSAPP_TOKEN, WHATSAPP_PHONE_ID, 
+    TEMPLATE_LANG, TWILIO_ACCOUNT_SID, TWILIO_TOKEN, TWILIO_TELEFONO)
 
-client = Client(TWILIO_ACCOUNT_SID, TWILIO_TOKEN)
+# Se inicializa el cliente con la API Key de Postmark
+client_postmark = PostmarkClient(server_token=SERVER_API_TOKEN_POSTMARK)
+
+client_twilio = Client(TWILIO_ACCOUNT_SID, TWILIO_TOKEN)
+
+# ------------------ MAIL DE INVITACIÓN ------------------ #
+def send_invite_email(to_email: str, token: str, empresa_nombre: str, rol: str):
+    invite_link = f"{FRONTEND_URL}/pages/usuarios/aceptar-invitacion/aceptar-invitacion?token={token}"
+    
+    html_body = f"""
+    <p>Fuiste invitado a unirte a <strong>{empresa_nombre}</strong> como <strong>{rol}</strong>.</p>
+    <p>Hacé click aquí para aceptar: <a href="{invite_link}">{invite_link}</a></p>
+    """
+    
+    client.emails.send(
+        From=EMAIL,
+        To=to_email,
+        Subject=f"Invitación a {empresa_nombre}",
+        HtmlBody=html_body,
+        TextBody=f"Fuiste invitado a {empresa_nombre} como {rol}. Link: {invite_link}"
+    )
+
+# ------------------ MAIL PARA RESETEO DE CONTRASEÑA ------------------ #
+def send_reset_email(to_email: str, token: str):
+    reset_link = f"{FRONTEND_URL}/pages/usuarios/restablecer-password/reset-password.html?token={token}"
+    
+    subject = "Recuperar contraseña"
+    body = f"Para resetear tu contraseña hacé click aquí: {reset_link}"
+
+    client_postmark.emails.send(
+        From=EMAIL, # email verificado en Postmark
+        To=to_email,
+        Subject=subject,
+        HtmlBody=body,
+        TextBody=body)
 
 def generar_otp():
     return str(random.randint(100000, 999999))
@@ -19,7 +55,7 @@ def enviar_sms(to_number: int, mensaje: str):
         mensaje (str): texto del mensaje
     """
     try:
-        message = client.messages.create(
+        message = client_twilio.messages.create(
             body=mensaje,
             from_=TWILIO_TELEFONO,
             to=f'+54{to_number}'

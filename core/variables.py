@@ -19,10 +19,14 @@ load_dotenv() # carga las variables del .env al entorno
 
 PORT = int(os.getenv("PORT", 8000)) # puerto del back. Railway asigna PORT
 
-EMAIL_USER = os.getenv("EMAIL_USER")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
-EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD")
 FRONTEND_URL = os.getenv("FRONTEND_URL")
+
+EMAIL = os.getenv("EMAIL")
+SERVER_API_TOKEN_POSTMARK = os.getenv("SERVER_API_TOKEN_POSTMARK") # Default Transactional Stream
+
+GMAIL = os.getenv("GMAIL")
+GMAIL_PASSWORD = os.getenv("GMAIL_PASSWORD")
+GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
 
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")

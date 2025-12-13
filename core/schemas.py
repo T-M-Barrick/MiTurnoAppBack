@@ -73,6 +73,26 @@ class DisponibilidadOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+class ServicioOut(BaseModel):
+    id: int
+    nombre: str
+    duracion: int | None
+    precio: Decimal | None
+    aclaracion: str | None
+    profesional_id: int | None
+    profesional_dni: int | None
+    profesional_apellido: str | None
+    profesional_nombre: str | None
+    disponibilidades: list[DisponibilidadOut] = Field(default_factory=list)
+
+    model_config = {"from_attributes": True}
+
+# Este schema se usa en los endpoints users/verificacion_email y empresas/aceptar_rol
+class TokenRequest(BaseModel):
+    token: str
+
+    model_config = {"from_attributes": True}
+
 # ------------------ SCHEMAS USUARIOS ------------------ #
 
 class UserCreate(BaseModel):
@@ -353,20 +373,6 @@ class UserOut(BaseModel):
     nombre: str
     email: str
     rol: str  # rol dentro de la empresa
-
-    model_config = {"from_attributes": True}
-
-class ServicioOut(BaseModel):
-    id: int
-    nombre: str
-    duracion: int | None
-    precio: Decimal | None
-    aclaracion: str | None
-    profesional_id: int | None
-    profesional_dni: int | None
-    profesional_apellido: str | None
-    profesional_nombre: str | None
-    disponibilidades: list[DisponibilidadOut] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 

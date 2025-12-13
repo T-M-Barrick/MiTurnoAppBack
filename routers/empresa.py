@@ -4,7 +4,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Response, HTTPException, status # Depends se usa para declarar dependencias en FastAPI (por ejemplo, obtener la sesión de base de datos).
 from sqlalchemy.orm import Session, joinedload, selectinload # Session de SQLAlchemy, representa una sesión de base de datos.
 
-from core import models, schemas, crud, autenticacion, auxiliares, variables
+from core import models, schemas, crud, autenticacion, auxiliares, variables, mensajes
 from core.database import get_db
 
 router = APIRouter(prefix="/empresas", tags=["Empresas"])
@@ -269,7 +269,18 @@ def invitar_empleado(
     usuario = db.query(models.Usuario).filter(models.Usuario.email == invitacion.usuario_email).first()
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    
+
+    # Crear token JWT usando create_access_token
+    token = autenticacion.create_access_token(
+        data={"usuario_id": usuario.id, "empresa_id": empresa_id, "rol": invitacion.rol},
+        expires_delta=timedelta(minutes=variables.ACCESS_TOKEN_EXPIRE_MINUTES))
+
+    # Enviar mail
+    mensajes.send_invite_email(usuario.email, token, empresa_nombre=db.query(models.Empresa).get(empresa_id).nombre, rol=invitacion.rol)
+
+    return {"message": f"Invitación enviada a {usuario_email} para el rol {invitacion.rol}"}
+
+    '''
     # Borrar cuando se haga lo del mail
     ###################################
     existe = db.query(models.Miembro_Empresa).filter_by(usuario_id=usuario.id, empresa_id=empresa_id).first()
@@ -280,25 +291,14 @@ def invitar_empleado(
     db.add(nuevo_miembro)
     db.commit()
 
-    return {"message": "OK"}
+    return {"message": "Agregado Exitoso"}
     ###################################
-
-    '''
-    # Crear token JWT usando create_access_token
-    token = autenticacion.create_access_token(
-        data={"usuario_id": usuario.id, "empresa_id": empresa_id, "rol": invitacion.rol},
-        expires_delta=timedelta(minutes=variables.ACCESS_TOKEN_EXPIRE_MINUTES))
-
-    # Enviar mail
-    send_invite_email(usuario.email, token, empresa_nombre=db.query(models.Empresa).get(empresa_id).nombre, rol=invitacion.rol)
-
-    return {"message": f"Invitación enviada a {usuario_email} para el rol {invitacion.rol}"}
     '''
 
 @router.post("/aceptar_rol")
-def aceptar_rol(token: str, db: Session = Depends(get_db)):
+def aceptar_rol(data: schemas.TokenRequest, db: Session = Depends(get_db)):
     try:
-        payload = jwt.decode(token, variables.SECRET_KEY, algorithms=[variables.ALGORITHM])
+        payload = jwt.decode(data.token, variables.SECRET_KEY, algorithms=[variables.ALGORITHM])
         usuario_id = payload.get("usuario_id")
         empresa_id = payload.get("empresa_id")
         rol = payload.get("rol")
@@ -313,8 +313,9 @@ def aceptar_rol(token: str, db: Session = Depends(get_db)):
     nuevo_miembro = models.Miembro_Empresa(usuario_id=usuario_id, empresa_id=empresa_id, rol=rol)
     db.add(nuevo_miembro)
     db.commit()
+    empresa = db.query(models.Empresa).filter_by(empresa_id=empresa_id).first()
 
-    return {"message": "OK"}
+    return {"message": f"¡¡Fuiste incorporado exitosamente como {rol} para la empresa {empresa.nombre}!!"}
 
 @router.put("/{empresa_id}/miembros/{usuario_id}")
 def modificar_rol(empresa_id: int, usuario_id: int, dato: schemas.ModificarRolIn, 

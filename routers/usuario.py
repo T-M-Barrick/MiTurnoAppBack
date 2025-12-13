@@ -75,7 +75,7 @@ def login_user(user: schemas.UserLogin, response: Response, db: Session = Depend
 @router.get("/me", response_model=schemas.UserLoginOut)
 def me(current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
     '''
-    Esto es para que cuando el creat o login del el OK, el navegador pida los datos del
+    Esto es para que cuando el creat o login dé el OK, el navegador pida los datos del
     usuario para el HTML del panel del usuario.
     También se usa para que el usuario entre a su panel de una cuando abra la app o dominio y ya estaba logueado y 
     el navegador ya tiene la cookie y así el usuario no tiene que poner de vuelta la contraseña y el email.
@@ -432,7 +432,7 @@ def forgot_password_email(solicitud: schemas.ForgotPasswordEmail, db: Session = 
 
     try:
         token = autenticacion.generate_password_reset_token(db, solicitud.email)
-        autenticacion.send_reset_email(solicitud.email, token)
+        mensajes.send_reset_email(solicitud.email, token)
     except ValueError:
         pass # No revelamos si el email existe o no
 
