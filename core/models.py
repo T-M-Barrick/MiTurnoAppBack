@@ -97,7 +97,7 @@ class Direccion(Base):
     __tablename__ = "direccion"
 
     id = Column(Integer, primary_key=True, index=True)
-    empresa_id = Column(Integer, ForeignKey("empresa.id"), , nullable=True) # NULL si pertenece a un usuario
+    empresa_id = Column(Integer, ForeignKey("empresa.id"), nullable=True) # NULL si pertenece a un usuario
     domicilio = Column(String(255)) # El devuelto por Google Maps
     lat = Column(Float, nullable=False)
     lng = Column(Float, nullable=False)
