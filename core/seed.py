@@ -1,51 +1,32 @@
-from datetime import time
+from datetime import time, datetime, timedelta
 
 from core.database import SessionLocal
-from core.models import Estado_Turno, Disponibilidad, Recordatorio
+from core.models import Disponibilidad
 
 db = SessionLocal()
 
 try:
-    # -----------------------------
-    # 1️⃣ Insertar estados de turno
-    # -----------------------------
-    estados = [
-        "confirmado",
-        "cancelado por usuario",
-        "cancelado por empresa",
-        "cumplido",
-        "no cumplido"
-    ]
-    for e in estados:
-        if not db.query(Estado_Turno).filter_by(estado=e).first():
-            db.add(Estado_Turno(estado=e))
+    # 1️⃣ Limpiar la tabla y reiniciar autoincrement
+    db.query(Disponibilidad).delete()  # Borra todos los registros
+    db.execute("ALTER TABLE disponibilidad AUTO_INCREMENT = 1")  # Reinicia IDs
     db.commit()
-    print("Estados insertados ✅")
 
-    # -----------------------------
-    # 2️⃣ Insertar recordatorios de 30 a 1410 de 30 en 30
-    # -----------------------------
-    for minutos in range(30, 1411, 30):
-        if not db.query(Recordatorio).filter_by(minutos_antes=minutos).first():
-            db.add(Recordatorio(minutos_antes=minutos))
-    db.commit()
-    print("Recordatorios insertados ✅")
+    # 2️⃣ Insertar disponibilidades de 5 en 5 minutos por día
+    dias = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+    intervalo = 5  # minutos
 
-    # -----------------------------
-    # 3️⃣ Insertar disponibilidades (opcional simple)
-    # -----------------------------
-    dias = ["lunes","martes","miércoles","jueves","viernes","sábado","domingo"]
     for dia in dias:
-        hora = time(9,0)
-        while hora <= time(17,0):
-            if not db.query(Disponibilidad).filter_by(dia=dia, hora=hora).first():
-                db.add(Disponibilidad(dia=dia, hora=hora))
+        current_time = time(0, 0)
+        while current_time < time(24, 0):
+            db.add(Disponibilidad(dia=dia, hora=current_time))
+
             # Avanzar 5 minutos
-            h = (hora.hour*60 + hora.minute + 5) // 60
-            m = (hora.hour*60 + hora.minute + 5) % 60
-            hora = time(h,m)
-    db.commit()
-    print("Disponibilidades insertadas ✅")
+            current_time = (datetime.combine(datetime.today(), current_time) + timedelta(minutes=intervalo)).time()
+
+        # Commit por día para no saturar la memoria
+        db.commit()
+
+    print("Tabla Disponibilidad poblada correctamente.")
 
 finally:
     db.close()
