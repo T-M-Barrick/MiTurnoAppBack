@@ -6,7 +6,6 @@ from routers import usuario, empresa, geo, whatsapp
 from core.variables import PORT, FRONTEND_URL
 from core.database import engine, Base # engine es la conexión a la base de datos, y Base es la clase base de los modelos.
 from core.recs import start_scheduler
-from core.seed import run_seeds
 from core import models
 
 # Creamos la aplicación FastAPI y le da un título que se ve en la documentación automática (/docs).
