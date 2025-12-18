@@ -4,16 +4,24 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from routers import usuario, empresa, geo, whatsapp
 from core.variables import PORT, FRONTEND_URL
-from core.database import engine, Base # engine es la conexión a la base de datos, y Base es la clase base de los modelos.
-from core.models import (Usuario, Empresa, Miembro_Empresa, Telefono, Direccion, Dir_Usuario, Turno, Historial, Servicio,
-    Estado_Turno, Favorito, Disponibilidad, Ser_Disp, Calificacion, Token, Blacklist)
+from core.database import engine, SessionLocal, Base # engine es la conexión a la base de datos, y Base es la clase base de los modelos.
 from core.recs import start_scheduler
+from core.seed import run_seeds
+from core import models
 
 # Creamos la aplicación FastAPI y le da un título que se ve en la documentación automática (/docs).
 app = FastAPI(title="Reservas API")
 
 # Crear tablas en la base de datos
 Base.metadata.create_all(bind=engine) # No sobrescribe ninguna base ni ninguna tabla existente. Tampoco borra registros.
+
+@app.on_event("startup")
+def startup():
+    db = SessionLocal()
+    try:
+        run_seeds(db)
+    finally:
+        db.close()
 
 # 🔥 CONFIGURACIÓN CORS
 app.add_middleware(
