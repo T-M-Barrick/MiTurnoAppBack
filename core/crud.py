@@ -911,7 +911,7 @@ def update_servicio_empresa(db: Session, empresa_id: int, servicio_update: schem
         # Traer servicio a actualizar
         servicio = db.query(models.Servicio).filter_by(id=servicio_update.id, empresa_id=empresa_id).first()
         if not servicio:
-            continue
+            return None
 
         # Convertir a dict solo con campos enviados
         update_data = servicio_update.dict(exclude_unset=True)
