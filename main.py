@@ -6,7 +6,7 @@ from routers import usuario, empresa, geo, whatsapp
 from core.variables import PORT, FRONTEND_URL
 from core.database import engine, Base # engine es la conexión a la base de datos, y Base es la clase base de los modelos.
 from core.models import (Usuario, Empresa, Miembro_Empresa, Telefono, Direccion, Dir_Usuario, Turno, Historial, Servicio,
-    Estado_Turno_Usuario, Estado_Turno_Empresa, Favorito, Disponibilidad, Ser_Disp, Calificacion, Token, Blacklist)
+    Estado_Turno, Favorito, Disponibilidad, Ser_Disp, Calificacion, Token, Blacklist)
 from core.recs import start_scheduler
 
 # Creamos la aplicación FastAPI y le da un título que se ve en la documentación automática (/docs).
@@ -50,11 +50,22 @@ if __name__ == "__main__":
 'https://trello.com/b/Hxb6LrqB/proyecto-pps'
 
 '''
+REGISTRO USUARIO LISTO VINCULADO
 HOME USUARIO LISTO VINCULADO
 MIS EMPRESAS LISTO VINCULADO
 ACEPTAR INVITACION LISTO VINCULADO
 PANEL EMPRESA LISTO VINCULADO
-RESERVAR TURNO
-CONTACTO
---- PERFIL USUARIO -- VERLO CON AGUS, CASI COMPLETO
+RESERVAR TURNO LISTO VINCULADO
+FAVORITOS LISTO VINCULADO
+HISTORIAL LISTO VINCULADO
+RESTABLECER-PASSWORD LISTO VINCULADO
+PERFIL USUARIO LISTO VINCULADO
+CONTACTO NO POR AHORA
+
+HOME EMRPESA LISTO VINCULADO
+REGISTRO EMPPRESA LISTO VINCULADO
+TURNOS EMPRESA LISTO VINCULADO
+HISTORIAL EMPRESA LISTO VINCULADO
+PERFIL EMPRESA LISTO VINCULADO
+MIEMBROS EMPRESA LISTO VINCULADO
 '''

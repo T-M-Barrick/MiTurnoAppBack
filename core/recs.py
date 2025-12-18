@@ -50,7 +50,7 @@ def enviar_recordatorios():
     for turno in turnos:
 
         telefono = turno.usuario.telefonos[0].numero  # o el que corresponda
-        cuando = formatear_fecha_hora_turno(turno.fecha_hora, ahora):
+        cuando = formatear_fecha_hora_turno(turno.fecha_hora, ahora)
 
         # ENVIAR SMS
         mensajes.enviar_sms(telefono, f'Recordatorio: tenés un turno en {turno.empresa.nombre} para {cuando}')

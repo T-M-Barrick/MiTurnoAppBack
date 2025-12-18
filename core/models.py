@@ -98,7 +98,12 @@ class Direccion(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     empresa_id = Column(Integer, ForeignKey("empresa.id"), nullable=True) # NULL si pertenece a un usuario
-    domicilio = Column(String(255)) # El devuelto por Google Maps
+    calle = Column(String(255))
+    altura = Column(String(255))
+    localidad = Column(String(255))
+    departamento = Column(String(255))
+    provincia = Column(String(255))
+    pais = Column(String(255))
     lat = Column(Float, nullable=False)
     lng = Column(Float, nullable=False)
     aclaracion = Column(String(255))
@@ -119,13 +124,14 @@ class Turno(Base):
     usuario_id = Column(Integer, ForeignKey("usuario.id"), nullable=False)
     empresa_id = Column(Integer, ForeignKey("empresa.id"), nullable=False)
     fecha_hora = Column(DateTime, nullable=False)
+    servicio_id = Column(Integer, nullable=False)
     nombre_de_servicio = Column(String(255), nullable=False)
     duracion = Column(Integer) # minutos
     precio = Column(Numeric(10, 2))  # 10 dígitos, 2 decimales
     aclaracion_de_servicio = Column(String(255)) # cualquier aclaración o descripción
     profesional_id = Column(Integer, ForeignKey("usuario.id"), nullable=True)
-    estado_turno_usuario_id = Column(Integer, ForeignKey("estado_turno_usuario.id"), nullable=False)
-    estado_turno_empresa_id = Column(Integer, ForeignKey("estado_turno_empresa.id"), nullable=False)
+    estado_turno_usuario_id = Column(Integer, ForeignKey("estado_turno.id"), nullable=False)
+    estado_turno_empresa_id = Column(Integer, ForeignKey("estado_turno.id"), nullable=False)
     eliminado = Column(String(50)) # NULL si nadie lo movió a su historial. 'u' si lo movió a su historial el usuario. 'e' si lo movió a su historial la empresa.
     recordatorio_id = Column(Integer, ForeignKey("recordatorio.id"), nullable=True)
 
@@ -140,9 +146,19 @@ class Turno(Base):
         back_populates="profesional_turnos",
         foreign_keys=[profesional_id]  # 🔹 indica que esta relación usa profesional_id
     )
+
     empresa = relationship("Empresa")
-    estado_turno_usuario = relationship("Estado_Turno_Usuario")
-    estado_turno_empresa = relationship("Estado_Turno_Empresa")
+
+    estado_turno_usuario = relationship(
+        "Estado_Turno",
+        foreign_keys=[estado_turno_usuario_id]
+    )
+
+    estado_turno_empresa = relationship(
+        "Estado_Turno",
+        foreign_keys=[estado_turno_empresa_id]
+    )
+
     recordatorio = relationship("Recordatorio", back_populates="turnos")
 
 class Historial(Base):
@@ -160,8 +176,8 @@ class Historial(Base):
 
     # Al pasar a Historial, sin que lo haga el limpiador periódico, el estado del otro va a ser ser NULL y así cuando el usuario o empresa
     # pida su historial, no se van a pasar los que tengan NULL en su estado ya que significa que nunca eliminaron al turno.
-    estado_turno_usuario_id = Column(Integer, ForeignKey("estado_turno_usuario.id"))
-    estado_turno_empresa_id = Column(Integer, ForeignKey("estado_turno_empresa.id"))
+    estado_turno_usuario_id = Column(Integer, ForeignKey("estado_turno.id"))
+    estado_turno_empresa_id = Column(Integer, ForeignKey("estado_turno.id"))
 
     # Relationships
     usuario = relationship(
@@ -174,9 +190,18 @@ class Historial(Base):
         back_populates="profesional_historial",
         foreign_keys=[profesional_id]  # 🔹 indica que esta relación usa profesional_id
     )
+    
     empresa = relationship("Empresa")
-    estado_turno_usuario = relationship("Estado_Turno_Usuario")
-    estado_turno_empresa = relationship("Estado_Turno_Empresa")
+
+    estado_turno_usuario = relationship(
+        "Estado_Turno",
+        foreign_keys=[estado_turno_usuario_id]
+    )
+
+    estado_turno_empresa = relationship(
+        "Estado_Turno",
+        foreign_keys=[estado_turno_empresa_id]
+    )
 
 class Servicio(Base):
     __tablename__ = "servicio"
@@ -193,15 +218,10 @@ class Servicio(Base):
     empresa = relationship("Empresa", back_populates="servicios")
     profesional = relationship("Miembro_Empresa", back_populates="servicios")
     ser_disps = relationship("Ser_Disp", back_populates="servicio")
+    disponibilidades = relationship("Disponibilidad2", back_populates="servicio")
 
-class Estado_Turno_Usuario(Base):
-    __tablename__ = "estado_turno_usuario" # Esta tabla ya viene con estados puestos
-
-    id = Column(Integer, primary_key=True)
-    estado = Column(String(50), unique=True, nullable=False)
-
-class Estado_Turno_Empresa(Base):
-    __tablename__ = "estado_turno_empresa" # Esta tabla ya viene con estados puestos
+class Estado_Turno(Base):
+    __tablename__ = "estado_turno" # Esta tabla ya viene con estados puestos
 
     id = Column(Integer, primary_key=True)
     estado = Column(String(50), unique=True, nullable=False)
@@ -220,6 +240,20 @@ class Disponibilidad(Base):
     hora = Column(Time, nullable=False) # cada 5 minutos
 
     __table_args__ = (UniqueConstraint("dia", "hora", name="uq_disponibilidad_dia_hora"), )
+
+class Disponibilidad2(Base):
+    __tablename__ = "disponibilidad2"
+
+    id = Column(Integer, primary_key=True)
+    servicio_id = Column(Integer, ForeignKey("servicio.id"), nullable=False)
+    dia = Column(String(50), nullable=False)
+    hora_inicio = Column(Time, nullable=False)
+    hora_fin = Column(Time, nullable=False)
+    intervalo = Column(Integer, nullable=False) # múltiplo de 5 minutos
+    cant_turnos_max = Column(Integer)
+
+    # Relationships
+    servicio = relationship("Servicio", back_populates="disponibilidades")
 
 class Ser_Disp(Base): # Conecta Servicio con Disponibilidad
     __tablename__ = "servicio_disponibilidad"

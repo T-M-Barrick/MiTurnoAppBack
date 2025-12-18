@@ -24,7 +24,7 @@ def create_empresa(empresa: schemas.EmpresaCreate, response: Response,
     
     crud.asignar_rol(db, current_user.id, db_empresa.id, 'propietario')
 
-    return {"msg": "Empresa creada exitosamente. Cierre sesión en su cuenta y vuelva a entrar para poder visualizar el panel de la empresa creada."}
+    return {"msg": "Empresa creada con éxito", "empresa_id": db.empresa.id}
 
 @router.get("/{empresa_id}", response_model=schemas.EmpresaPanelOut)
 def acceder_empresa(empresa_id: int, current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
@@ -86,9 +86,9 @@ def crear_servicio_empresa(
     return emp # emp es un objeto de clase EmpresaPanelOut de Pydantic
 
 @router.patch("/{empresa_id}/servicios", response_model=schemas.EmpresaPanelOut)
-def update_servicios_empresa(
+def update_servicio_empresa(
     empresa_id: int,
-    servicios_update: schemas.ServiciosUpdateIn,
+    servicio_update: schemas.ServicioUpdate,
     current_user: models.Usuario = Depends(crud.get_current_user),
     db: Session = Depends(get_db)):
 
@@ -98,7 +98,7 @@ def update_servicios_empresa(
     if current_user_rol == 'empleado':
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Los empleados no pueden modificar datos.")
     
-    db_emp = crud.update_servicios_empresa(db, empresa_id, servicios_update)
+    db_emp = crud.update_servicio_empresa(db, empresa_id, servicio_update)
     if not db_emp:
         raise HTTPException(status_code=404, detail="Empresa no encontrada")
     
@@ -180,7 +180,10 @@ def modificar_turno_empresa(
     # Verifico que el usuario que mandó la petición pertenezca a la empresa
     crud.verificar_rol_en_empresa(db, current_user.id, empresa_id)
 
-    turno = db.query(models.Turno).filter(models.Turno.id == turno_update.id, models.Turno.empresa_id == empresa_id).first()
+    turno = db.query(models.Turno).options(
+        joinedload(models.Turno.usuario),
+        joinedload(models.Turno.empresa)).filter(
+            models.Turno.id == turno_update.id, models.Turno.empresa_id == empresa_id).first()
     if not turno:
         raise HTTPException(status_code=404, detail="Turno no encontrado")
 
@@ -193,6 +196,7 @@ def modificar_turno_empresa(
         usuario_apellido=turno_modificado.usuario.apellido,
         usuario_nombre=turno_modificado.usuario.nombre,
         fecha_hora=turno_modificado.fecha_hora,
+        servicio_id=turno_modificado.servicio_id,
         nombre_de_servicio=turno_modificado.nombre_de_servicio,
         duracion=turno_modificado.duracion,
         precio=turno_modificado.precio,
@@ -278,7 +282,7 @@ def invitar_empleado(
     # Enviar mail
     mensajes.send_invite_email(usuario.email, token, empresa_nombre=db.query(models.Empresa).get(empresa_id).nombre, rol=invitacion.rol)
 
-    return {"message": f"Invitación enviada a {usuario_email} para el rol {invitacion.rol}"}
+    return {"message": f"Invitación enviada a {invitacion.usuario_email} para el rol {invitacion.rol}"}
 
     '''
     # Borrar cuando se haga lo del mail

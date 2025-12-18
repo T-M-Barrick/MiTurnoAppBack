@@ -170,7 +170,12 @@ def get_empresas(query: str, lat: float, lng: float,
             telefonos=[t.numero for t in e.telefonos],
             direccion=schemas.DireccionOut(
                 id=e.direccion.id,
-                domicilio=e.direccion.domicilio,
+                calle=e.direccion.calle,
+                altura=e.direccion.altura,
+                localidad=e.direccion.localidad,
+                departamento=e.direccion.departamento,
+                provincia=e.direccion.provincia,
+                pais=e.direccion.pais,
                 lat=e.direccion.lat,
                 lng=e.direccion.lng,
                 aclaracion=e.direccion.aclaracion),
@@ -179,13 +184,26 @@ def get_empresas(query: str, lat: float, lng: float,
     return resultados # resultados es una lista de objetos de clase EmpresaOut de Pydantic
 
 # Se envía al hacer click en la empresa
-@router.get("/empresas/{empresa_id}/turnos_disponibles", response_model=list[schemas.ServicioOut])
+@router.get("/empresas/{empresa_id}/turnos_disponibles", response_model=list[schemas.ServicioConTurnosOut])
 def get_turnos_disponibles_empresa(empresa_id: int, 
     current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
 
     servicios = crud.get_turnos_disponibles_empresa(db, empresa_id) # servicios es una lista de objetos de clase Servicio de SQLAlchemy
     if not servicios:
         raise HTTPException(status_code=404, detail="No hay turnos disponibles para esta empresa")
+    
+    turnos = crud.get_turnos_confirmados_empresa(db, empresa_id)
+
+    turnos_por_servicio: dict[int, list[schemas.TurnoActualDelServicio]] = {}
+
+    for t in turnos:
+        turno_out = schemas.TurnoActualDelServicio(
+            id=t.id,
+            fecha_hora=t.fecha_hora,
+            duracion=t.duracion
+        )
+
+        turnos_por_servicio.setdefault(t.servicio_id, []).append(turno_out)
 
     servicios_out = []
 
@@ -207,7 +225,7 @@ def get_turnos_disponibles_empresa(empresa_id: int,
         profesional = s.profesional
         us = profesional.usuario if profesional and profesional.usuario else None
 
-        servicio_out = schemas.ServicioOut(
+        servicio_out = schemas.ServicioConTurnosOut(
             id=s.id,
             nombre=s.nombre,
             duracion=s.duracion,
@@ -217,7 +235,8 @@ def get_turnos_disponibles_empresa(empresa_id: int,
             profesional_dni=us.dni if us else None,
             profesional_apellido=us.apellido if us else None,
             profesional_nombre=us.nombre if us else None,
-            disponibilidades=disponibilidades_out)
+            disponibilidades=disponibilidades_out,
+            turnos_actuales=turnos_por_servicio.get(s.id, []))
 
         servicios_out.append(servicio_out)
 
@@ -290,7 +309,12 @@ def reservar_turno(reserva: schemas.ReservaTurnoIn,
             logo_empresa=auxiliares.codificar_logo(empresa.logo),
             direccion=schemas.DireccionOut(
                 id=empresa.direccion.id,
-                domicilio=empresa.direccion.domicilio,
+                calle=empresa.direccion.calle,
+                altura=empresa.direccion.altura,
+                localidad=empresa.direccion.localidad,
+                departamento=empresa.direccion.departamento,
+                provincia=empresa.direccion.provincia,
+                pais=empresa.direccion.pais,
                 lat=empresa.direccion.lat,
                 lng=empresa.direccion.lng,
                 aclaracion=empresa.direccion.aclaracion),
@@ -312,8 +336,12 @@ def reservar_turno(reserva: schemas.ReservaTurnoIn,
 @router.put("/turnos", response_model=schemas.TurnoOut)
 def modificar_turno_usuario(turno_update: schemas.TurnoUpdate, 
     current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
+
     user_id = current_user.id
-    turno = db.query(models.Turno).filter(models.Turno.id == turno_update.id, models.Turno.usuario_id == user_id).first()
+    turno = db.query(models.Turno).options(
+        joinedload(models.Turno.usuario),
+        joinedload(models.Turno.empresa)).filter(
+            models.Turno.id == turno_update.id, models.Turno.usuario_id == user_id).first()
     if not turno:
         raise HTTPException(status_code=404, detail="Turno no encontrado")
 
@@ -327,7 +355,12 @@ def modificar_turno_usuario(turno_update: schemas.TurnoUpdate,
         logo_empresa=auxiliares.codificar_logo(turno_modificado.empresa.logo),
         direccion=schemas.DireccionOut(
             id=turno_modificado.empresa.direccion.id,
-            domicilio=turno_modificado.empresa.direccion.domicilio,
+            calle=turno_modificado.empresa.direccion.calle,
+            altura=turno_modificado.empresa.direccion.altura,
+            localidad=turno_modificado.empresa.direccion.localidad,
+            departamento=turno_modificado.empresa.direccion.departamento,
+            provincia=turno_modificado.empresa.direccion.provincia,
+            pais=turno_modificado.empresa.direccion.pais,
             lat=turno_modificado.empresa.direccion.lat,
             lng=turno_modificado.empresa.direccion.lng,
             aclaracion=turno_modificado.empresa.direccion.aclaracion),

@@ -36,7 +36,12 @@ class TurnoEstadoOut(BaseModel):
     model_config = {"from_attributes": True}
 
 class DireccionIn(BaseModel):
-    domicilio: str | None
+    calle: str | None
+    altura: str | None
+    localidad: str | None
+    departamento: str | None
+    provincia: str | None
+    pais: str | None
     lat: float
     lng: float
     aclaracion: str | None
@@ -45,7 +50,12 @@ class DireccionIn(BaseModel):
 
 class DireccionOut(BaseModel):
     id: int
-    domicilio: str | None
+    calle: str | None
+    altura: str | None
+    localidad: str | None
+    departamento: str | None
+    provincia: str | None
+    pais: str | None
     lat: float
     lng: float
     aclaracion: str | None
@@ -58,7 +68,12 @@ class DireccionUpdate(BaseModel):
     Que en un campo se envíe None significa que se actualiza ese atributo en la base como NULL
     '''
     id: int
-    domicilio: str | None
+    calle: str | None
+    altura: str | None
+    localidad: str | None
+    departamento: str | None
+    provincia: str | None
+    pais: str | None
     lat: float
     lng: float
     aclaracion: str | None
@@ -70,20 +85,6 @@ class DisponibilidadOut(BaseModel):
     dia: str
     hora: str # para el output, JSON no reconoce el tipo time y por eso se lo envía como string
     cant_turnos_max: int
-
-    model_config = {"from_attributes": True}
-
-class ServicioOut(BaseModel):
-    id: int
-    nombre: str
-    duracion: int | None
-    precio: Decimal | None
-    aclaracion: str | None
-    profesional_id: int | None
-    profesional_dni: int | None
-    profesional_apellido: str | None
-    profesional_nombre: str | None
-    disponibilidades: list[DisponibilidadOut] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -261,6 +262,28 @@ class TurnoReservadoOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+class TurnoActualDelServicio(BaseModel):
+    id: int
+    fecha_hora: datetime
+    duracion: int # minutos
+
+    model_config = {"from_attributes": True}
+
+class ServicioConTurnosOut(BaseModel):
+    id: int
+    nombre: str
+    duracion: int | None
+    precio: Decimal | None
+    aclaracion: str | None
+    profesional_id: int | None
+    profesional_dni: int | None
+    profesional_apellido: str | None
+    profesional_nombre: str | None
+    disponibilidades: list[DisponibilidadOut] = Field(default_factory=list)
+    turnos_actuales: list[TurnoActualDelServicio] = Field(default_factory=list)
+
+    model_config = {"from_attributes": True}
+
 class Calificacion(BaseModel):
     empresa_id: int
     valor: conint(ge=0, le=10)  # solo permite enteros de 0 a 10
@@ -355,6 +378,7 @@ class TurnoEmpresaOut(BaseModel):
     usuario_apellido: str
     usuario_nombre: str
     fecha_hora: datetime
+    servicio_id: int
     nombre_de_servicio: str
     duracion: int | None
     precio: Decimal | None
@@ -372,7 +396,66 @@ class UserOut(BaseModel):
     apellido: str
     nombre: str
     email: str
-    rol: str  # rol dentro de la empresa
+    rol: str # rol dentro de la empresa
+
+    model_config = {"from_attributes": True}
+
+class DisponibilidadServicio(BaseModel):
+    dia: str # Ej: "Lunes"
+    hora_inicio: time
+    hora_fin: time
+    intervalo: int
+    cant_turnos_max: int
+
+    @field_validator("hora_inicio", "hora_fin")
+    @classmethod
+    def validar_hora_5min(cls, v):
+        if v.minute % 5 != 0:
+            raise ValueError("La hora debe ser múltiplo de 5 minutos")
+        return v
+    
+    @field_validator("intervalo")
+    @classmethod
+    def validar_intervalo_5min(cls, v):
+        if v <= 0:
+            raise ValueError("El intervalo debe ser mayor que 0")
+        if v % 5 != 0:
+            raise ValueError("El intervalo debe ser múltiplo de 5 minutos")
+        return v
+    
+    @model_validator(mode="after")
+    @classmethod
+    def validar_consistencia(cls, values):
+        inicio = values.hora_inicio
+        fin = values.hora_fin
+        intervalo = values.intervalo
+
+        if fin < inicio:
+            raise ValueError("hora_fin debe ser mayor o igual que hora_inicio")
+
+        # convertir a minutos
+        inicio_min = inicio.hour * 60 + inicio.minute
+        fin_min = fin.hour * 60 + fin.minute
+        duracion_total = fin_min - inicio_min
+
+        if duracion_total % intervalo != 0:
+            raise ValueError("hora_fin debe coincidir exactamente con múltiplos del intervalo desde hora_inicio")
+
+        return values
+    
+    model_config = {"from_attributes": True}
+
+class ServicioOut(BaseModel):
+    id: int
+    nombre: str
+    duracion: int | None
+    precio: Decimal | None
+    aclaracion: str | None
+    profesional_id: int | None
+    profesional_dni: int | None
+    profesional_apellido: str | None
+    profesional_nombre: str | None
+    disponibilidades: list[DisponibilidadServicio] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -401,30 +484,8 @@ class InvitacionEmpleadoIn(BaseModel):
     model_config = {"from_attributes": True}
 
 class ModificarRolIn(BaseModel):
-    nuevo_rol: str # nuevo rol ('gerente', 'supervisor', 'empleado', etc.)
+    nuevo_rol: str # nuevo rol ('propietario', 'gerente', 'empleado')
 
-    model_config = {"from_attributes": True}
-
-class DisponibilidadServicio(BaseModel):
-    dia: str # Ej: "Lunes"
-    hora_inicio: time
-    hora_fin: time
-    cant_turnos_max: int
-
-    @field_validator("hora_inicio", "hora_fin")
-    @classmethod
-    def validar_hora_5min(cls, v):
-        if v.minute % 5 != 0:
-            raise ValueError("La hora debe ser múltiplo de 5 minutos")
-        return v
-    
-    @model_validator(mode="after")
-    @classmethod
-    def validar_fin_mayor_inicio(cls, values):
-        if values.hora_fin <= values.hora_inicio:
-            raise ValueError("hora_fin debe ser mayor que hora_inicio")
-        return values
-    
     model_config = {"from_attributes": True}
 
 class ServicioCreate(BaseModel):
@@ -437,8 +498,7 @@ class ServicioCreate(BaseModel):
 
 class ServicioUpdate(BaseModel):
     '''
-    Que en un campo se envíe None o no se envíe el campo directamente, significa que no se actualiza ese campo
-    (esto no vale en el campo disponibilidades).
+    Que no se envíe el campo, significa que no se actualiza ese campo (esto no vale en el campo disponibilidades).
     No significa, por lo menos en este schema, que si algo no se envía, entonces se cambie en la base a NULL.
 
     En el caso de dsiponibilidades, pydantic no va a dejar que el usuario envíe None en su campo.
@@ -447,6 +507,9 @@ class ServicioUpdate(BaseModel):
     para con ese servicio y se procede a borrarlas a todas (que el programa identifique si envió disponibilidades
     o lo envió como lista vacía se hace en la función crud.update_servicios_empresa en la parte que dice
     update_data = s.dict(exclude_unset=True)).
+
+    Todo campo que se envíe como None, se cambia en la base a NULL salvo disponibilidades (que no acepta None) y nombre que 
+    en la función en el crud se exige que si se envía, tiene que tener un valor distinto de "" y None.
     '''
     id: int # obligatorio
     nombre: Optional[str] = None
@@ -472,18 +535,6 @@ Formato JSON de ServicioUpdate:
     ]
 }
 '''
-
-class ServiciosUpdateIn(BaseModel):
-    servicios: list[ServicioUpdate]
-
-    # ❗ No permitir lista vacía
-    @field_validator("servicios")
-    def validar_servicios_no_vacio(cls, v):
-        if v == []:
-            raise ValueError('Si se desea modificar servicios, entonces no puede entregarse una lista vacía')
-        return v
-    
-    model_config = {"from_attributes": True}
 
 class ServiciosDeleteIn(BaseModel):
     servicios: list[int] # IDs de servicios a eliminar

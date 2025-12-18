@@ -24,7 +24,12 @@ def convertir_orm_pydantic_usuario(user, update=False, turnos_del_usuario=[]):
 
             direcciones=[schemas.DireccionOut(
                 id=d.id,
-                domicilio=d.domicilio,
+                calle=d.calle,
+                altura=d.altura,
+                localidad=d.localidad,
+                departamento=d.departamento,
+                provincia=d.provincia,
+                pais=d.pais,
                 lat=d.lat,
                 lng=d.lng,
                 aclaracion=d.aclaracion) for d in user.direcciones],
@@ -40,7 +45,12 @@ def convertir_orm_pydantic_usuario(user, update=False, turnos_del_usuario=[]):
                 telefonos=[t.numero for t in e.telefonos],
                 direccion=schemas.DireccionOut(
                     id=e.direccion.id,
-                    domicilio=e.direccion.domicilio,
+                    calle=e.direccion.calle,
+                    altura=e.direccion.altura,
+                    localidad=e.direccion.localidad,
+                    departamento=e.direccion.departamento,
+                    provincia=e.direccion.provincia,
+                    pais=e.direccion.pais,
                     lat=e.direccion.lat,
                     lng=e.direccion.lng,
                     aclaracion=e.direccion.aclaracion),
@@ -54,7 +64,12 @@ def convertir_orm_pydantic_usuario(user, update=False, turnos_del_usuario=[]):
                 logo_empresa=codificar_logo(turn.empresa.logo),
                 direccion=schemas.DireccionOut(
                     id=turn.empresa.direccion.id,
-                    domicilio=turn.empresa.direccion.domicilio,
+                    calle=turn.empresa.direccion.calle,
+                    altura=turn.empresa.direccion.altura,
+                    localidad=turn.empresa.direccion.localidad,
+                    departamento=turn.empresa.direccion.departamento,
+                    provincia=turn.empresa.direccion.provincia,
+                    pais=turn.empresa.direccion.pais,
                     lat=turn.empresa.direccion.lat,
                     lng=turn.empresa.direccion.lng,
                     aclaracion=turn.empresa.direccion.aclaracion),
@@ -82,7 +97,12 @@ def convertir_orm_pydantic_usuario(user, update=False, turnos_del_usuario=[]):
 
             direcciones=[schemas.DireccionOut(
                 id=d.id,
-                domicilio=d.domicilio,
+                calle=d.calle,
+                altura=d.altura,
+                localidad=d.localidad,
+                departamento=d.departamento,
+                provincia=d.provincia,
+                pais=d.pais,
                 lat=d.lat,
                 lng=d.lng,
                 aclaracion=d.aclaracion) for d in user.direcciones],
@@ -98,7 +118,12 @@ def convertir_orm_pydantic_usuario(user, update=False, turnos_del_usuario=[]):
                 telefonos=[t.numero for t in e.telefonos],
                 direccion=schemas.DireccionOut(
                     id=e.direccion.id,
-                    domicilio=e.direccion.domicilio,
+                    calle=e.direccion.calle,
+                    altura=e.direccion.altura,
+                    localidad=e.direccion.localidad,
+                    departamento=e.direccion.departamento,
+                    provincia=e.direccion.provincia,
+                    pais=e.direccion.pais,
                     lat=e.direccion.lat,
                     lng=e.direccion.lng,
                     aclaracion=e.direccion.aclaracion),
@@ -116,7 +141,12 @@ def convertir_orm_pydantic_empresa(empresa, miembro_rol):
 
     direccion_out = schemas.DireccionOut(
         id=empresa.direccion.id,
-        domicilio=empresa.direccion.domicilio,
+        calle=empresa.direccion.calle,
+        altura=empresa.direccion.altura,
+        localidad=empresa.direccion.localidad,
+        departamento=empresa.direccion.departamento,
+        provincia=empresa.direccion.provincia,
+        pais=empresa.direccion.pais,
         lat=empresa.direccion.lat,
         lng=empresa.direccion.lng,
         aclaracion=empresa.direccion.aclaracion)
@@ -138,11 +168,12 @@ def convertir_orm_pydantic_empresa(empresa, miembro_rol):
                 profesional_apellido=usuario.apellido if usuario else None,
                 profesional_nombre=usuario.nombre if usuario else None,
                 disponibilidades=[
-                    schemas.DisponibilidadOut(
-                        id=sd.disponibilidad.id,
-                        dia=sd.disponibilidad.dia,
-                        hora=sd.disponibilidad.hora,
-                        cant_turnos_max=sd.cant_turnos_max) for sd in s.ser_disps]
+                    schemas.DisponibilidadServicio(
+                        dia=d..dia,
+                        hora_inicio=d.hora_inicio,
+                        hora_fin=d.hora_fin,
+                        intervalo=d.intervalo,
+                        cant_turnos_max=d.cant_turnos_max) for d in s.disponibilidades]
             )
         )
 
@@ -153,6 +184,7 @@ def convertir_orm_pydantic_empresa(empresa, miembro_rol):
         usuario_apellido=t.usuario.apellido,
         usuario_nombre=t.usuario.nombre,
         fecha_hora=t.fecha_hora,
+        servicio_id=t.servicio_id,
         nombre_de_servicio=t.nombre_de_servicio,
         duracion=t.duracion,
         precio=t.precio,

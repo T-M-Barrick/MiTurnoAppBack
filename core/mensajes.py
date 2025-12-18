@@ -43,6 +43,54 @@ def send_reset_email(to_email: str, token: str):
         HtmlBody=body,
         TextBody=body)
 
+# ------------------ MAIL PARA LUEGO DE CANCELACIÓN ------------------ #
+def send_turno_cancelado_email(
+    to_email: str,
+    us_emp_nombre: str,
+    fecha_hora: str,
+    servicio: str):
+
+    fecha = fecha_hora.strftime("%d/%m/%Y")
+    hora = fecha_hora.strftime("%H:%M")
+
+    subject = f"Turno cancelado por {us_emp_nombre}"
+
+    mensaje = f"""
+    <p><strong>{us_emp_nombre}</strong> ha cancelado el turno programado
+    para el día <strong>{fecha}</strong> a las <strong>{hora}</strong> hs.</p>
+
+    <p><strong>Servicio:</strong> {servicio}</p>
+
+    <p>Muchas gracias por su comprensión.</p>
+    """
+
+    html_body = f"""
+    <p>Hola,</p>
+
+    {mensaje}
+
+    <p>— Equipo MiTurno</p>
+    """
+
+    text_body = f"""
+    {us_emp_nombre} ha cancelado el turno programado
+    para el día {fecha} a las {hora} hs.
+
+    Servicio: {servicio}
+
+    Muchas gracias por su comprensión.
+
+    — Equipo MiTurno
+    """
+
+    client.emails.send(
+        From=EMAIL,
+        To=to_email,
+        Subject=subject,
+        HtmlBody=html_body,
+        TextBody=text_body
+    )
+
 def generar_otp():
     return str(random.randint(100000, 999999))
 
