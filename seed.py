@@ -1,5 +1,7 @@
 from datetime import time, datetime, timedelta
 
+from sqlalchemy import text
+
 from core.database import SessionLocal
 from core.models import Disponibilidad
 
@@ -8,7 +10,8 @@ db = SessionLocal()
 try:
     # 1️⃣ Limpiar la tabla y reiniciar autoincrement
     db.query(Disponibilidad).delete()  # Borra todos los registros
-    db.execute("ALTER TABLE disponibilidad AUTO_INCREMENT = 1")  # Reinicia IDs
+
+    db.execute(text("ALTER TABLE disponibilidad AUTO_INCREMENT = 1"))
     db.commit()
 
     # 2️⃣ Insertar disponibilidades de 5 en 5 minutos por día
