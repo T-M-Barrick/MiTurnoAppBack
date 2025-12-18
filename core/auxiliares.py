@@ -169,7 +169,7 @@ def convertir_orm_pydantic_empresa(empresa, miembro_rol):
                 profesional_nombre=usuario.nombre if usuario else None,
                 disponibilidades=[
                     schemas.DisponibilidadServicio(
-                        dia=d..dia,
+                        dia=d.dia,
                         hora_inicio=d.hora_inicio,
                         hora_fin=d.hora_fin,
                         intervalo=d.intervalo,
