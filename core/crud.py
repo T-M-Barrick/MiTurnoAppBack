@@ -555,6 +555,9 @@ def reservar_turno(db: Session, user_id: int, empresa_id: int, fecha_hora: datet
         
         servicios_posibles = [] # Lista de objetos Servicio
         for i in servicios_totales:
+            if not sd:
+                continue  # saltamos este servicio si no hay disponibilidad
+                
             servicio_posible = i[0]
             # Voy a contar la cantidad de turnos existentes que se superponen con el turno que el cliente quiere sacar (nuevo turno) para este servicio
             turnos_actuales = db.query(models.Turno).filter(
@@ -599,6 +602,9 @@ def reservar_turno(db: Session, user_id: int, empresa_id: int, fecha_hora: datet
                 models.Ser_Disp.servicio_id == servicio.id,
                 models.Disponibilidad.dia == dia,
                 models.Disponibilidad.hora == hora).first()
+        
+        if not sd:
+            return 'No hay disponibilidad configurada para este servicio en este horario'
         
         # Voy a contar la cantidad de turnos existentes que se superponen con el turno que el cliente quiere sacar (nuevo turno) para este servicio
         turnos_actuales = db.query(models.Turno).filter(
@@ -886,6 +892,12 @@ def crear_servicio_empresa(db: Session, empresa_id: int, servicio_nuevo: schemas
                 while current_time >= inicio and current_time <= fin:
                     # Traer disponibilidad
                     disp = db.query(models.Disponibilidad).filter_by(dia=dia, hora=current_time).first()
+
+                    # Si no existe, crearla
+                    if not disp:
+                        disp = models.Disponibilidad(dia=dia, hora=current_time)
+                        db.add(disp)
+                        db.flush()  # para obtener disp.id sin commit
                     
                     # Asociar con Ser_Disp
                     ser_disp = models.Ser_Disp(servicio_id=servicio.id, disponibilidad_id=disp.id, cant_turnos_max=cant_max)
@@ -956,6 +968,13 @@ def update_servicio_empresa(db: Session, empresa_id: int, servicio_update: schem
                 while current_time >= inicio and current_time <= fin:
                     # Traer disponibilidad
                     disp = db.query(models.Disponibilidad).filter_by(dia=dia, hora=current_time).first()
+
+                    # Si no existe, crearla
+                    if not disp:
+                        disp = models.Disponibilidad(dia=dia, hora=current_time)
+                        db.add(disp)
+                        db.flush()  # Para obtener disp.id sin commit
+
                     nuevas_ids.add(disp.id)
 
                     # Asociar con Ser_Disp
