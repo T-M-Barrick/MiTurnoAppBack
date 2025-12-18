@@ -20,12 +20,12 @@ def get_db():
 '''
 USE miturno;
 
-INSERT INTO disponibilidad (dia, hora)
 WITH RECURSIVE minutos AS (
   SELECT 0 AS m
   UNION ALL
   SELECT m + 5 FROM minutos WHERE m + 5 < 1440
 )
+INSERT INTO disponibilidad (dia, hora)
 SELECT d.dia, DATE_FORMAT(SEC_TO_TIME(m.m * 60), '%H:%i')
 FROM (
     SELECT 'lunes' AS dia, 1 AS orden
@@ -38,4 +38,21 @@ FROM (
 ) AS d
 CROSS JOIN minutos m
 ORDER BY d.orden, m.m;
+
+INSERT INTO estado_turno (estado) VALUES
+('confirmado'),
+('cancelado por usuario'),
+('cancelado por empresa'),
+('cumplido'),
+('no cumplido');
+
+WITH RECURSIVE series AS (
+    SELECT 30 AS n
+    UNION ALL
+    SELECT n + 30
+    FROM series
+    WHERE n + 30 <= 1410
+)
+INSERT INTO recordatorio (minutos_antes)
+SELECT n FROM series;
 '''

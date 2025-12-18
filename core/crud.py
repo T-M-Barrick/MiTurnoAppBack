@@ -898,8 +898,8 @@ def crear_servicio_empresa(db: Session, empresa_id: int, servicio_nuevo: schemas
         return True
 
     except Exception:
-    db.rollback()
-    raise
+        db.rollback()
+        raise
 
 def update_servicio_empresa(db: Session, empresa_id: int, servicio_update: schemas.ServicioUpdate):
 
