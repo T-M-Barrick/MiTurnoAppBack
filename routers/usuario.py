@@ -425,6 +425,7 @@ def get_estados_turnos_usuario(current_user: models.Usuario = Depends(crud.get_c
 # ---------------- FORGOT PASSWORD ---------------- #
 
 # ---------------- VÍA CELULAR ---------------- #
+'''
 @router.post("/forgot_password")
 def forgot_password(solicitud: schemas.ForgotPassword, db: Session = Depends(get_db)):
 
@@ -458,6 +459,7 @@ def forgot_password(solicitud: schemas.ForgotPassword, db: Session = Depends(get
         if not tel:
             raise HTTPException(status_code=500, detail="No se pudo enviar el SMS")
         return {"message": "Mensaje enviado", "tel": tel}
+'''
 
 # ---------------- VÍA EMAIL ---------------- #
 @router.post("/forgot_password_email")
@@ -476,6 +478,7 @@ def forgot_password_email(solicitud: schemas.ForgotPasswordEmail, db: Session = 
 # ---------------- RESET PASSWORD ---------------- #
 
 # ---------------- VÍA CELULAR ---------------- #
+'''
 @router.post("/reset_password")
 def reset_password(data: schemas.ResetPassword, db: Session = Depends(get_db)):
 
@@ -502,6 +505,7 @@ def reset_password(data: schemas.ResetPassword, db: Session = Depends(get_db)):
     db.commit()
 
     return {"message": "Contraseña actualizada correctamente."}
+'''
 
 # ---------------- VÍA EMAIL ---------------- #
 @router.post("/reset_password_email")

@@ -1,16 +1,12 @@
 import random
 
 import requests
-from twilio.rest import Client
 from postmarker.core import PostmarkClient
 
-from core.variables import (FRONTEND_URL, EMAIL, SERVER_API_TOKEN_POSTMARK, WHATSAPP_TOKEN, WHATSAPP_PHONE_ID, 
-    TEMPLATE_LANG, TWILIO_ACCOUNT_SID, TWILIO_TOKEN, TWILIO_TELEFONO)
+from core.variables import FRONTEND_URL, EMAIL, SERVER_API_TOKEN_POSTMARK
 
 # Se inicializa el cliente con la API Key de Postmark
 client_postmark = PostmarkClient(server_token=SERVER_API_TOKEN_POSTMARK)
-
-client_twilio = Client(TWILIO_ACCOUNT_SID, TWILIO_TOKEN)
 
 # ------------------ MAIL DE INVITACIÓN ------------------ #
 def send_invite_email(to_email: str, token: str, empresa_nombre: str, rol: str):
@@ -93,6 +89,10 @@ def send_turno_cancelado_email(
 
 def generar_otp():
     return str(random.randint(100000, 999999))
+'''
+from twilio.rest import Client
+
+client_twilio = Client(TWILIO_ACCOUNT_SID, TWILIO_TOKEN)
 
 def enviar_sms(to_number: int, mensaje: str):
     """
@@ -168,6 +168,7 @@ def enviar_otp_whatsapp(numero, nombre, codigo):
         template_name=TEMPLATE_OTP,
         variables=[nombre, codigo]
     )
+'''
 
 '''
 Plantilla OTP de WPP:
