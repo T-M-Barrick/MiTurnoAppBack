@@ -20,7 +20,7 @@ try:
 
     for dia in dias:
         current_time = time(0, 0)
-        while current_time < time(24, 0):
+        while current_time <= time(23, 55):
             db.add(Disponibilidad(dia=dia, hora=current_time))
 
             # Avanzar 5 minutos
