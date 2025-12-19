@@ -480,6 +480,7 @@ def get_empresas(db: Session, query: str, lat: float, lng: float):
 
     if not empresas:
         return []
+    print(e.nombre for e in empresas)
 
     # 2) Lógica de radios crecientes
     radios = [2, 5, 10, 20, 50]  # kilómetros
@@ -487,7 +488,7 @@ def get_empresas(db: Session, query: str, lat: float, lng: float):
 
     for r in radios:
         for e in empresas:
-            if not e.direccion or e.direccion.lat is None or e.direccion.lng is None:
+            if (not e.direccion) or (e.direccion.lat is None) or (e.direccion.lng is None):
                 continue
 
             dist = auxiliares.distancia_km(lat, lng, e.direccion.lat, e.direccion.lng)
@@ -495,6 +496,7 @@ def get_empresas(db: Session, query: str, lat: float, lng: float):
             if dist <= r:
                 if e not in resultados:
                     resultados.append(e)
+                    print(e.nombre for e in resultados)
 
     return resultados # resultados es una lista de objetos de clase Empresa de SQLAlchemy
 
