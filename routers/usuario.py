@@ -124,7 +124,13 @@ def logout_user(response: Response, current_user: models.Usuario = Depends(crud.
         except Exception:
             pass
 
-    response.delete_cookie(variables.COOKIE_NAME)
+    response.delete_cookie(
+        key=variables.COOKIE_NAME,
+        domain=variables.COOKIE_DOMAIN,
+        path="/", # path por defecto suele ser "/"
+        samesite=variables.COOKIE_SAMESITE,
+        secure=variables.COOKIE_SECURE
+    )
     return {"msg": "Logout exitoso"}
 
 @router.get("/mis_empresas", response_model=list[schemas.RolEmpresaOut])
