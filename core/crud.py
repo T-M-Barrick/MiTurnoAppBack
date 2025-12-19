@@ -726,7 +726,7 @@ def asignar_rol(db: Session, usuario_id: int, empresa_id: int, rol: str):
     # Verificar si ya existe
     miembro = db.query(models.Miembro_Empresa).filter_by(usuario_id=usuario_id, empresa_id=empresa_id).first()
     
-    if existing:
+    if miembro:
         raise ValueError("El usuario ya es miembro de esta empresa")
     
     db_miembro = models.Miembro_Empresa(usuario_id=usuario_id, empresa_id=empresa_id, rol=rol)
