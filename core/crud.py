@@ -497,6 +497,8 @@ def get_empresas(db: Session, query: str, lat: float, lng: float):
             if dist <= r:
                 if e not in resultados:
                     resultados.append(e)
+    for e in resultados:
+        print("EMPRESA:", e.nombre)
 
     return resultados # resultados es una lista de objetos de clase Empresa de SQLAlchemy
 
