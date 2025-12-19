@@ -477,11 +477,11 @@ def get_empresas(db: Session, query: str, lat: float, lng: float):
             joinedload(models.Empresa.servicios))
         .distinct().all() # Devuelve lista sin duplicados
     )
+    for e in empresas:
+        print("EMPRESA:", e.nombre)
 
     if not empresas:
         return []
-    for e in empresas:
-        print("EMPRESA:", e.nombre)
 
     # 2) Lógica de radios crecientes
     radios = [2, 5, 10, 20, 50]  # kilómetros
@@ -497,8 +497,6 @@ def get_empresas(db: Session, query: str, lat: float, lng: float):
             if dist <= r:
                 if e not in resultados:
                     resultados.append(e)
-            for e in resultados:
-                print("EMPRESA:", e.nombre)
 
     return resultados # resultados es una lista de objetos de clase Empresa de SQLAlchemy
 
