@@ -1,13 +1,4 @@
-from sqlalchemy import text
-from core.database import engine
 
-with engine.begin() as conn:
-    # Cambiar tipo de columna cuit a BIGINT
-    conn.execute(text("""
-        ALTER TABLE empresa 
-        MODIFY COLUMN cuit BIGINT NOT NULL;
-    """))
-    conn.commit()
 
 '''
 from sqlalchemy.orm import Session
