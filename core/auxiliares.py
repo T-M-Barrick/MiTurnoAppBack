@@ -162,7 +162,6 @@ def convertir_orm_pydantic_empresa(empresa, empresa2, empresa3, empresa4, miembr
 
         profesional = s2.profesional
         usuario = profesional.usuario if profesional else None
-        print("usuario_id", usuario.id)
 
         servicios_out.append(
             schemas.ServicioOut(
@@ -184,10 +183,6 @@ def convertir_orm_pydantic_empresa(empresa, empresa2, empresa3, empresa4, miembr
                         cant_turnos_max=d.cant_turnos_max) for d in s4.disponibilidades]
             )
         )
-    for s in servicios_out:
-        print("servicios: ", s.profesional_apellido)
-        print("id1: ", s.profesional_id)
-        print("nombre: ", s.profesional_nombre)
 
     turnos_out = [schemas.TurnoEmpresaOut(
         id=t.id,
@@ -212,8 +207,6 @@ def convertir_orm_pydantic_empresa(empresa, empresa2, empresa3, empresa4, miembr
         nombre=m.usuario.nombre,
         email=m.usuario.email,
         rol=m.rol) for m in empresa.miembros]
-    for m in miembros_out:
-        print("miembros: ", m.apellido)
 
     empresa_out = schemas.EmpresaPanelOut(
         id=empresa.id,

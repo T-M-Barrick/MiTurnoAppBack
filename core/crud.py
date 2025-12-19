@@ -477,8 +477,6 @@ def get_empresas(db: Session, query: str, lat: float, lng: float):
             joinedload(models.Empresa.servicios))
         .distinct().all() # Devuelve lista sin duplicados
     )
-    for e in empresas:
-        print("EMPRESA:", e.nombre)
 
     if not empresas:
         return []
@@ -497,8 +495,6 @@ def get_empresas(db: Session, query: str, lat: float, lng: float):
             if dist <= r:
                 if e not in resultados:
                     resultados.append(e)
-    for e in resultados:
-        print("EMPRESA:", e.nombre)
 
     return resultados # resultados es una lista de objetos de clase Empresa de SQLAlchemy
 
@@ -890,7 +886,6 @@ def crear_servicio_empresa(db: Session, empresa_id: int, servicio_nuevo: schemas
     db_emp = get_empresa(db, empresa_id)
     if not db_emp:
         return None
-    print(servicio_nuevo.profesional_id)
     
     try:
         # Crear servicio
@@ -903,7 +898,6 @@ def crear_servicio_empresa(db: Session, empresa_id: int, servicio_nuevo: schemas
             miembro_empresa_id=servicio_nuevo.profesional_id)
         db.add(servicio)
         db.flush()  # obtiene servicio.id SIN commit
-        print("luego ", servicio.miembro_empresa_id)
 
         if servicio_nuevo.disponibilidades:
             
