@@ -676,7 +676,7 @@ def get_empresa(db: Session, empresa_id: int):
         selectinload(models.Empresa.servicios) # Trae todas las filas de Servicio asociadas a la Empresa
             .selectinload(models.Servicio.disponibilidades) # Para cada Servicio que se cargó, trae todas las filas de Disponibilidad2
         ).filter(models.Empresa.id == empresa_id).first()
-        
+
     return empresa # empresa es un objeto de clase Empresa de SQLAlchemy
 
 # Crear usuario
@@ -952,11 +952,11 @@ def update_servicio_empresa(db: Session, empresa_id: int, servicio_update: schem
             
             # Procesar disponibilidades por día y rango horario
             for disp_range in update_data["disponibilidades"]:
-                dia = disp_range.dia
-                inicio = disp_range.hora_inicio
-                fin = disp_range.hora_fin
-                intervalo = disp_range.intervalo
-                cant_max = disp_range.cant_turnos_max
+                dia = disp_range["dia"]
+                inicio = disp_range["hora_inicio"]
+                fin = disp_range["hora_fin"]
+                intervalo = disp_range["intervalo"]
+                cant_max = disp_range["cant_turnos_max"]
 
                 disp2 = models.Disponibilidad2(
                     servicio_id=servicio.id,
