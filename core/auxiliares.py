@@ -155,7 +155,7 @@ def convertir_orm_pydantic_empresa(empresa, empresa2, empresa3, empresa4, miembr
     servicios_map = {s.id: s for s in empresa2.servicios}
 
     for s4 in empresa4.servicios:
-        s2 = servicios_map.get(s.id)
+        s2 = servicios_map.get(s4.id)
 
         if not s2:
             continue
@@ -187,7 +187,7 @@ def convertir_orm_pydantic_empresa(empresa, empresa2, empresa3, empresa4, miembr
     for s in servicios_out:
         print("servicios: ", s.profesional_apellido)
         print("id1: ", s.profesional_id)
-        print("nombre: ", profesional_nombre)
+        print("nombre: ", s.profesional_nombre)
 
     turnos_out = [schemas.TurnoEmpresaOut(
         id=t.id,
