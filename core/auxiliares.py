@@ -6,7 +6,7 @@ import io
 import requests
 from PIL import Image
 
-from core import schemas, crud
+from core import schemas
 from core.variables import DIAS_NOMBRES, MAX_LOGO_SIZE
 
 # Convierte un objeto de la clase Usuario de SQLAlchemy en uno de clase UsuarioLoginOut o UsuarioUpdateOut de Pydantic (y agrega turnos si tiene)
@@ -134,7 +134,7 @@ def convertir_orm_pydantic_usuario(user, update=False, turnos_del_usuario=[]):
     return us # us será un objeto de clase UsuarioLoginOut o de la clase UsuarioUpdateOut de Pydantic
 
 # Convierte un objeto de la clase Empresa de SQLAlchemy en uno de clase EmpresaPanelOut de Pydantic
-def convertir_orm_pydantic_empresa(empresa, miembro_rol):
+def convertir_orm_pydantic_empresa(empresa, miembro_rol, turnos):
 
     # Armar listas anidadas según schemas
     telefonos = [[t.id, t.numero] for t in empresa.telefonos]
@@ -177,7 +177,6 @@ def convertir_orm_pydantic_empresa(empresa, miembro_rol):
             )
         )
 
-    turnos = crud.get_turnos(db, empresa_id, user=False)
     turnos_out = [schemas.TurnoEmpresaOut(
         id=t.id,
         usuario_dni=t.usuario.dni,
