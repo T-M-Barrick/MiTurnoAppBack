@@ -863,6 +863,7 @@ def crear_servicio_empresa(db: Session, empresa_id: int, servicio_nuevo: schemas
     db_emp = get_empresa(db, empresa_id)
     if not db_emp:
         return None
+    print(servicio_nuevo.profesional_id)
     
     try:
         # Crear servicio
@@ -875,6 +876,7 @@ def crear_servicio_empresa(db: Session, empresa_id: int, servicio_nuevo: schemas
             miembro_empresa_id=servicio_nuevo.profesional_id)
         db.add(servicio)
         db.flush()  # obtiene servicio.id SIN commit
+        print("luego ", servicio.miembro_empresa_id)
 
         if servicio_nuevo.disponibilidades:
             
