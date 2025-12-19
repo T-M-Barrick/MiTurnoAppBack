@@ -670,13 +670,40 @@ def get_empresa(db: Session, empresa_id: int):
     empresa = db.query(models.Empresa).options(
         joinedload(models.Empresa.direccion),
         joinedload(models.Empresa.telefonos),
-        selectinload(models.Empresa.miembros).joinedload(models.Miembro_Empresa.usuario),
+        selectinload(models.Empresa.miembros).joinedload(models.Miembro_Empresa.usuario)
+        ).filter(models.Empresa.id == empresa_id).first()
+
+    return empresa # empresa es un objeto de clase Empresa de SQLAlchemy
+
+def get_empresa2(db: Session, empresa_id: int):
+
+    empresa = db.query(models.Empresa).options(
+        joinedload(models.Empresa.direccion),
+        joinedload(models.Empresa.telefonos),
         selectinload(models.Empresa.servicios) # Trae todas las filas de Servicio asociadas a la Empresa
             .joinedload(models.Servicio.profesional) # Para cada Servicio que se cargó, trae el Miembro_Empresa asociado
-            .joinedload(models.Miembro_Empresa.usuario), # Para cada Miembro_Empresa que se cargó, trae el Usuario asociado
+            .joinedload(models.Miembro_Empresa.usuario) # Para cada Miembro_Empresa que se cargó, trae el Usuario asociado
+        ).filter(models.Empresa.id == empresa_id).first()
+
+    return empresa # empresa es un objeto de clase Empresa de SQLAlchemy
+
+def get_empresa3(db: Session, empresa_id: int):
+
+    empresa = db.query(models.Empresa).options(
+        joinedload(models.Empresa.direccion),
+        joinedload(models.Empresa.telefonos),
         selectinload(models.Empresa.servicios) # Trae todas las filas de Servicio asociadas a la Empresa
             .selectinload(models.Servicio.ser_disps) # Para cada Servicio que se cargó, trae todas las filas de Ser_Disp
-            .joinedload(models.Ser_Disp.disponibilidad), # Para cada Ser_Disp que se cargó, trae la Disponibilidad asociada
+            .joinedload(models.Ser_Disp.disponibilidad) # Para cada Ser_Disp que se cargó, trae la Disponibilidad asociada
+        ).filter(models.Empresa.id == empresa_id).first()
+
+    return empresa # empresa es un objeto de clase Empresa de SQLAlchemy
+
+def get_empresa4(db: Session, empresa_id: int):
+
+    empresa = db.query(models.Empresa).options(
+        joinedload(models.Empresa.direccion),
+        joinedload(models.Empresa.telefonos),
         selectinload(models.Empresa.servicios) # Trae todas las filas de Servicio asociadas a la Empresa
             .selectinload(models.Servicio.disponibilidades) # Para cada Servicio que se cargó, trae todas las filas de Disponibilidad2
         ).filter(models.Empresa.id == empresa_id).first()

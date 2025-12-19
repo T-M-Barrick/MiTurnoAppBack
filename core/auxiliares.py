@@ -134,7 +134,7 @@ def convertir_orm_pydantic_usuario(user, update=False, turnos_del_usuario=[]):
     return us # us será un objeto de clase UsuarioLoginOut o de la clase UsuarioUpdateOut de Pydantic
 
 # Convierte un objeto de la clase Empresa de SQLAlchemy en uno de clase EmpresaPanelOut de Pydantic
-def convertir_orm_pydantic_empresa(empresa, miembro_rol, turnos):
+def convertir_orm_pydantic_empresa(empresa, empresa2, empresa3, empresa4, miembro_rol, turnos):
 
     # Armar listas anidadas según schemas
     telefonos = [[t.id, t.numero] for t in empresa.telefonos]
@@ -152,19 +152,26 @@ def convertir_orm_pydantic_empresa(empresa, miembro_rol, turnos):
         aclaracion=empresa.direccion.aclaracion)
     
     servicios_out = []
-    for s in empresa.servicios:
-        profesional = s.profesional
+    servicios_map = {s.id: s for s in empresa2.servicios}
+
+    for s4 in empresa4.servicios:
+        s2 = servicios_map.get(s.id)
+
+        if not s2:
+            continue
+
+        profesional = s2.profesional
         usuario = profesional.usuario if profesional else None
         print("usuario_id", usuario.id)
 
         servicios_out.append(
             schemas.ServicioOut(
-                id=s.id,
-                nombre=s.nombre,
-                duracion=s.duracion,
-                precio=s.precio,
-                aclaracion=s.aclaracion,
-                profesional_id=s.miembro_empresa_id,
+                id=s2.id,
+                nombre=s2.nombre,
+                duracion=s2.duracion,
+                precio=s2.precio,
+                aclaracion=s2.aclaracion,
+                profesional_id=s2.miembro_empresa_id,
                 profesional_dni=usuario.dni if usuario else None,
                 profesional_apellido=usuario.apellido if usuario else None,
                 profesional_nombre=usuario.nombre if usuario else None,
@@ -174,12 +181,12 @@ def convertir_orm_pydantic_empresa(empresa, miembro_rol, turnos):
                         hora_inicio=d.hora_inicio,
                         hora_fin=d.hora_fin,
                         intervalo=d.intervalo,
-                        cant_turnos_max=d.cant_turnos_max) for d in s.disponibilidades]
+                        cant_turnos_max=d.cant_turnos_max) for d in s4.disponibilidades]
             )
         )
     for s in servicios_out:
         print("servicios: ", s.profesional_apellido)
-        print("id1: ", s.miembro_empresa_id)
+        print("id1: ", s.profesional_id)
         print("nombre: ", profesional_nombre)
 
     turnos_out = [schemas.TurnoEmpresaOut(

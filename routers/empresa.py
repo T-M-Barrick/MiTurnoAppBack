@@ -37,9 +37,13 @@ def acceder_empresa(empresa_id: int, current_user: models.Usuario = Depends(crud
     if not empresa:
         raise HTTPException(status_code=404, detail="Empresa no encontrada")
     
+    empresa2 = crud.get_empresa2(db, empresa_id)
+    empresa3 = crud.get_empresa3(db, empresa_id)
+    empresa4 = crud.get_empresa4(db, empresa_id)
+    
     turnos = crud.get_turnos(db, empresa_id, user=False)
     
-    emp = auxiliares.convertir_orm_pydantic_empresa(empresa, current_user_rol, turnos)
+    emp = auxiliares.convertir_orm_pydantic_empresa(empresa, empresa2, empresa3, empresa4, current_user_rol, turnos)
 
     return emp # emp es un objeto de clase EmpresaPanelOut de Pydantic
 
@@ -59,10 +63,14 @@ def update_empresa(empresa_id: int, empresa_update: schemas.EmpresaUpdate,
         raise HTTPException(status_code=404, detail="Empresa no encontrada")
     
     empresa = crud.get_empresa(db, empresa_id) # empresa ahora es un objeto de clase Empresa (con sus relationships actualizadas) de SQLAlchemy
+
+    empresa2 = crud.get_empresa2(db, empresa_id)
+    empresa3 = crud.get_empresa3(db, empresa_id)
+    empresa4 = crud.get_empresa4(db, empresa_id)
     
     turnos = crud.get_turnos(db, empresa_id, user=False)
 
-    emp = auxiliares.convertir_orm_pydantic_empresa(empresa, current_user_rol, turnos)
+    emp = auxiliares.convertir_orm_pydantic_empresa(empresa, empresa2, empresa3, empresa4, current_user_rol, turnos)
 
     return emp # emp es un objeto de clase EmpresaPanelOut de Pydantic
 
@@ -85,9 +93,13 @@ def crear_servicio_empresa(
     
     empresa = crud.get_empresa(db, empresa_id) # empresa ahora es un objeto de clase Empresa (con sus relationships actualizadas) de SQLAlchemy
     
+    empresa2 = crud.get_empresa2(db, empresa_id)
+    empresa3 = crud.get_empresa3(db, empresa_id)
+    empresa4 = crud.get_empresa4(db, empresa_id)
+
     turnos = crud.get_turnos(db, empresa_id, user=False)
 
-    emp = auxiliares.convertir_orm_pydantic_empresa(empresa, current_user_rol, turnos)
+    emp = auxiliares.convertir_orm_pydantic_empresa(empresa, empresa2, empresa3, empresa4, current_user_rol, turnos)
 
     return emp # emp es un objeto de clase EmpresaPanelOut de Pydantic
 
@@ -110,9 +122,13 @@ def update_servicio_empresa(
     
     empresa = crud.get_empresa(db, empresa_id) # empresa ahora es un objeto de clase Empresa (con sus relationships actualizadas) de SQLAlchemy
     
+    empresa2 = crud.get_empresa2(db, empresa_id)
+    empresa3 = crud.get_empresa3(db, empresa_id)
+    empresa4 = crud.get_empresa4(db, empresa_id)
+
     turnos = crud.get_turnos(db, empresa_id, user=False)
 
-    emp = auxiliares.convertir_orm_pydantic_empresa(empresa, current_user_rol, turnos)
+    emp = auxiliares.convertir_orm_pydantic_empresa(empresa, empresa2, empresa3, empresa4, current_user_rol, turnos)
 
     return emp # emp es un objeto de clase EmpresaPanelOut de Pydantic
 
@@ -134,10 +150,14 @@ def eliminar_servicios_empresa(
         raise HTTPException(status_code=404, detail="Empresa no encontrada")
     
     empresa = crud.get_empresa(db, empresa_id) # empresa ahora es un objeto de clase Empresa (con sus relationships actualizadas) de SQLAlchemy
-    
+        
+    empresa2 = crud.get_empresa2(db, empresa_id)
+    empresa3 = crud.get_empresa3(db, empresa_id)
+    empresa4 = crud.get_empresa4(db, empresa_id)
+
     turnos = crud.get_turnos(db, empresa_id, user=False)
 
-    emp = auxiliares.convertir_orm_pydantic_empresa(empresa, current_user_rol, turnos)
+    emp = auxiliares.convertir_orm_pydantic_empresa(empresa, empresa2, empresa3, empresa4, current_user_rol, turnos)
 
     return emp # emp es un objeto de clase EmpresaPanelOut de Pydantic
 
