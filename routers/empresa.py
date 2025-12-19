@@ -24,7 +24,7 @@ def create_empresa(empresa: schemas.EmpresaCreate, response: Response,
     
     crud.asignar_rol(db, current_user.id, db_empresa.id, 'propietario')
 
-    return {"msg": "Empresa creada con éxito", "empresa_id": db.empresa.id}
+    return {"msg": "Empresa creada con éxito", "empresa_id": db_empresa.id}
 
 @router.get("/{empresa_id}", response_model=schemas.EmpresaPanelOut)
 def acceder_empresa(empresa_id: int, current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
