@@ -6,7 +6,7 @@ import io
 import requests
 from PIL import Image
 
-from core import schemas
+from core import schemas, crud
 from core.variables import DIAS_NOMBRES, MAX_LOGO_SIZE
 
 # Convierte un objeto de la clase Usuario de SQLAlchemy en uno de clase UsuarioLoginOut o UsuarioUpdateOut de Pydantic (y agrega turnos si tiene)
