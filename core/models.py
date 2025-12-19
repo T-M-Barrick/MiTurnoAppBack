@@ -50,7 +50,7 @@ class Empresa(Base):
     __tablename__ = "empresa"
     
     id = Column(Integer, primary_key=True, index=True)
-    cuit = Column(Integer, nullable=False)
+    cuit = Column(BigInteger, nullable=False)
     nombre = Column(String(100, collation=variables.COLLATION_MYSQL_8), nullable=False) # La collation hace que no distinga tildes y mayúsculas y minúsculas
     email = Column(String(100), nullable=False)
     rubro = Column(String(100))

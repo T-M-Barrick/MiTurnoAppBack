@@ -1,38 +1,13 @@
-from datetime import time, datetime, timedelta
-
 from sqlalchemy import text
+from core.database import engine
 
-from core.database import SessionLocal
-from core.models import Disponibilidad
-
-db = SessionLocal()
-
-try:
-    # 1️⃣ Limpiar la tabla y reiniciar autoincrement
-    db.query(Disponibilidad).delete()  # Borra todos los registros
-
-    db.execute(text("ALTER TABLE disponibilidad AUTO_INCREMENT = 1"))
-    db.commit()
-
-    # 2️⃣ Insertar disponibilidades de 5 en 5 minutos por día
-    dias = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
-    intervalo = 5  # minutos
-
-    for dia in dias:
-        current_time = time(0, 0)
-        while current_time <= time(23, 55):
-            db.add(Disponibilidad(dia=dia, hora=current_time))
-
-            # Avanzar 5 minutos
-            current_time = (datetime.combine(datetime.today(), current_time) + timedelta(minutes=intervalo)).time()
-
-        # Commit por día para no saturar la memoria
-        db.commit()
-
-    print("Tabla Disponibilidad poblada correctamente.")
-
-finally:
-    db.close()
+with engine.begin() as conn:
+    # Cambiar tipo de columna cuit a BIGINT
+    conn.execute(text("""
+        ALTER TABLE empresa 
+        MODIFY COLUMN cuit BIGINT NOT NULL;
+    """))
+    conn.commit()
 
 '''
 from sqlalchemy.orm import Session
