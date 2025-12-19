@@ -117,6 +117,9 @@ class Dir_Usuario(Base):
     direccion_id = Column(Integer, ForeignKey("direccion.id"), primary_key=True)
     usuario_id = Column(Integer, ForeignKey("usuario.id"), primary_key=True)
 
+    # Relationships
+    direccion = relationship("Direccion")
+
 class Turno(Base):
     __tablename__ = "turno"
     

@@ -381,10 +381,10 @@ def update_user(db: Session, user_id: int, user_update):
     # ----------------------------
     if user_update.direcciones is not None:
         current_dirs = {
-            du.direccion.id: du.direccion
+            du.direccion_id: du.direccion
             for du in db.query(models.Dir_Usuario)
+                        .options(joinedload(models.Dir_Usuario.direccion))
                         .filter(models.Dir_Usuario.usuario_id == user_id)
-                        .join(models.Direccion)
                         .all()
         }
         new_dir_ids = set()
@@ -557,7 +557,7 @@ def reservar_turno(db: Session, user_id: int, empresa_id: int, fecha_hora: datet
         for i in servicios_totales:
             if not sd:
                 continue  # saltamos este servicio si no hay disponibilidad
-                
+
             servicio_posible = i[0]
             # Voy a contar la cantidad de turnos existentes que se superponen con el turno que el cliente quiere sacar (nuevo turno) para este servicio
             turnos_actuales = db.query(models.Turno).filter(
