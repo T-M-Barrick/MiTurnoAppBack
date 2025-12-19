@@ -17,7 +17,7 @@ def send_invite_email(to_email: str, token: str, empresa_nombre: str, rol: str):
     <p>Hacé click aquí para aceptar: <a href="{invite_link}">{invite_link}</a></p>
     """
     
-    client.emails.send(
+    client_postmark.emails.send(
         From=EMAIL,
         To=to_email,
         Subject=f"Invitación a {empresa_nombre}",
@@ -79,7 +79,7 @@ def send_turno_cancelado_email(
     — Equipo MiTurno
     """
 
-    client.emails.send(
+    client_postmark.emails.send(
         From=EMAIL,
         To=to_email,
         Subject=subject,
