@@ -136,7 +136,7 @@ class EmpresaOut(BaseModel):
     email: str
     rubro: str | None
     rubro2: str | None
-    calificacion: str | None
+    calificacion: float | None
     telefonos: list[int] = Field(default_factory=list)
     direccion: DireccionOut
     logo: str | None
@@ -466,7 +466,7 @@ class EmpresaPanelOut(BaseModel):
     email: str
     rubro: str | None
     rubro2: str | None
-    calificacion: int | None
+    calificacion: float | None
     telefonos: list[list[int]] = Field(default_factory=list)
     direccion: DireccionOut
     logo: str | None

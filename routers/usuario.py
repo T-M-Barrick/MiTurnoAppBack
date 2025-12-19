@@ -158,10 +158,9 @@ def calificar_empresa(calificacion_recibida: schemas.Calificacion,
 @router.get("/empresas/search", response_model=list[schemas.EmpresaOut])
 def get_empresas(query: str, lat: float, lng: float, 
     current_user: models.Usuario = Depends(crud.get_current_user), db: Session = Depends(get_db)):
-    print("hola")
 
     empresas = crud.get_empresas(db, query, lat, lng) # empresas es una lista de objetos de clase Empresa de SQLAlchemy
-    print("bast")
+
     if not empresas:
         raise HTTPException(status_code=404, detail="No se encontraron empresas que coincidan con la búsqueda")
     
