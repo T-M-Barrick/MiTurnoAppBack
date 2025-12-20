@@ -563,7 +563,7 @@ def reservar_turno(db: Session, user_id: int, empresa_id: int, fecha_hora: datet
             turnos_actuales = db.query(models.Turno).filter(
                 models.Turno.empresa_id == empresa_id, # turno de la misma empresa
                 models.Turno.servicio_id == servicio_posible.id, # turno del mismo servicio
-                models.Turno.fecha_hora + func.make_interval(mins=models.Turno.duracion) > fecha_hora, # el turno existente termina después de que empieza el nuevo turno
+                models.Turno.fecha_hora + func.make_interval(minutes=models.Turno.duracion) > fecha_hora, # el turno existente termina después de que empieza el nuevo turno
                 models.Turno.fecha_hora < fecha_hora + timedelta(minutes=servicio_posible.duracion) # El turno existente empieza antes de que termine el nuevo turno
                 ).count()
 
@@ -610,7 +610,7 @@ def reservar_turno(db: Session, user_id: int, empresa_id: int, fecha_hora: datet
         turnos_actuales = db.query(models.Turno).filter(
             models.Turno.empresa_id == empresa_id, # turno de la misma empresa
             models.Turno.servicio_id == servicio.id, # turno del mismo servicio
-            models.Turno.fecha_hora + func.make_interval(mins=models.Turno.duracion) > fecha_hora, # el turno existente termina después de que empieza el nuevo turno
+            models.Turno.fecha_hora + func.make_interval(minutes=models.Turno.duracion) > fecha_hora, # el turno existente termina después de que empieza el nuevo turno
             models.Turno.fecha_hora < fecha_hora + timedelta(minutes=servicio.duracion) # El turno existente empieza antes de que termine el nuevo turno
             ).count()
 
