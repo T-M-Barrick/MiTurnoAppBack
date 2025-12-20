@@ -300,7 +300,7 @@ def reservar_turno(reserva: schemas.ReservaTurnoIn,
     turn = crud.reservar_turno(db, current_user.id, reserva.empresa_id, 
         reserva.fecha_hora, reserva.servicio_id, reserva.profesional_id)
 
-    if isinstance(turno, models.Turno):
+    if isinstance(turn, models.Turno):
 
         turno = db.query(models.Turno).options(
             joinedload(models.Turno.usuario),

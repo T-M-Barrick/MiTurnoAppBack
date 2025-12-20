@@ -555,8 +555,6 @@ def reservar_turno(db: Session, user_id: int, empresa_id: int, fecha_hora: datet
         
         servicios_posibles = [] # Lista de objetos Servicio
         for i in servicios_totales:
-            if not sd:
-                continue  # saltamos este servicio si no hay disponibilidad
 
             servicio_posible = i[0]
             # Voy a contar la cantidad de turnos existentes que se superponen con el turno que el cliente quiere sacar (nuevo turno) para este servicio
@@ -573,6 +571,8 @@ def reservar_turno(db: Session, user_id: int, empresa_id: int, fecha_hora: datet
             ]
 
             sd = i[1]
+            if not sd:
+                continue  # saltamos este servicio si no hay disponibilidad
             if len(turnos_actuales) < sd.cant_turnos_max:
                 servicios_posibles.append(servicio_posible)
                 
