@@ -337,8 +337,8 @@ def reservar_turno(reserva: schemas.ReservaTurnoIn,
             estado_turno=turno.estado_turno_usuario.estado,
             recordatorio=turno.recordatorio.minutos_antes if turno.recordatorio else None)
         return schemas.TurnoReservadoOut(message="Turno reservado con éxito", turno=turno_out)
-    if isinstance(turno, str):
-        return schemas.TurnoReservadoOut(message=turno)
+    if isinstance(turn, str):
+        return schemas.TurnoReservadoOut(message=turn)
 
 # Modifica el estado de un turno de la tabla Turno y devuelve el turno con el estado modificado
 @router.put("/turnos", response_model=schemas.TurnoOut)
