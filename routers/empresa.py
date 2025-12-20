@@ -303,7 +303,13 @@ def invitar_empleado(
     usuario = db.query(models.Usuario).filter(models.Usuario.email == invitacion.usuario_email).first()
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-
+    
+    existe = db.query(models.Miembro_Empresa).filter_by(usuario_id=usuario.id, empresa_id=empresa_id).first()
+    if existe:
+        raise HTTPException(status_code=400, detail=f"{usuario.apellido}, {usuario.nombre} ya es miembro de esta empresa")
+    '''
+    # Agregar cuando se haga lo del mail
+    ###################################
     # Crear token JWT usando create_access_token
     token = autenticacion.create_access_token(
         data={"usuario_id": usuario.id, "empresa_id": empresa_id, "rol": invitacion.rol},
@@ -313,21 +319,18 @@ def invitar_empleado(
     mensajes.send_invite_email(usuario.email, token, empresa_nombre=db.query(models.Empresa).get(empresa_id).nombre, rol=invitacion.rol)
 
     return {"message": f"Invitación enviada a {invitacion.usuario_email} para el rol {invitacion.rol}"}
-
+    ###################################
     '''
+
     # Borrar cuando se haga lo del mail
     ###################################
-    existe = db.query(models.Miembro_Empresa).filter_by(usuario_id=usuario.id, empresa_id=empresa_id).first()
-    if existe:
-        raise HTTPException(status_code=400, detail="Ya es miembro de esta empresa")
-    
     nuevo_miembro = models.Miembro_Empresa(usuario_id=usuario.id, empresa_id=empresa_id, rol=invitacion.rol)
     db.add(nuevo_miembro)
     db.commit()
 
     return {"message": "Agregado Exitoso"}
     ###################################
-    '''
+    
 
 @router.post("/aceptar_rol")
 def aceptar_rol(data: schemas.TokenRequest, db: Session = Depends(get_db)):

@@ -92,11 +92,11 @@ def modificar_turno(db: Session, turno: models.Turno, nuevo_estado: str, nuevo_r
 
                 if nuevo_estado == 'cancelado por usuario':
                     turno.estado_turno_empresa_id = estado_obj.id
-                    mensajes.send_turno_cancelado_email(
+                    '''mensajes.send_turno_cancelado_email(
                         to_email=turno.empresa.email,
                         us_emp_nombre=f"{turno.usuario.apellido}, {turno.usuario.nombre}",
                         fecha_hora=turno.fecha_hora,
-                        servicio=turno.nombre_de_servicio)
+                        servicio=turno.nombre_de_servicio)'''
 
             else:
                 if not estado_obj or (nuevo_estado == 'cancelado por usuario'):
@@ -108,11 +108,11 @@ def modificar_turno(db: Session, turno: models.Turno, nuevo_estado: str, nuevo_r
 
                 if nuevo_estado == 'cancelado por empresa':
                     turno.estado_turno_usuario_id = estado_obj.id
-                    mensajes.send_turno_cancelado_email(
+                    '''mensajes.send_turno_cancelado_email(
                         to_email=turno.usuario.email,
                         us_emp_nombre=turno.empresa.nombre,
                         fecha_hora=turno.fecha_hora,
-                        servicio=turno.nombre_de_servicio)
+                        servicio=turno.nombre_de_servicio)'''
 
         if nuevo_recordatorio is not None:
             recordatorio_obj = db.query(models.Recordatorio).filter(
