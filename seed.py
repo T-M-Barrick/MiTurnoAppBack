@@ -1,8 +1,7 @@
-from datetime import time, timedelta, datetime
-
 from sqlalchemy.orm import Session
 
 from core import models
+from core.database import SessionLocal
 
 def seed_estados_turno(db: Session):
     estados = [
@@ -34,3 +33,9 @@ def run_seeds(db: Session):
     seed_estados_turno(db)
     seed_recordatorios(db)
     db.commit()
+
+db = SessionLocal()
+run_seeds(db)
+db.close()
+
+print("✅ Seeds ejecutados correctamente")
