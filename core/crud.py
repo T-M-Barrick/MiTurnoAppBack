@@ -660,7 +660,7 @@ def agregar_calificacion(db: Session, empresa_id: int, valor: int):
             return False
 
         califs = db.query(models.Calificacion).filter(models.Calificacion.empresa_id == empresa_id).all()
-        promedio = round(sum(c.valor for c in califs) / len(califs),, 2)
+        promedio = round(sum(c.valor for c in califs) / len(califs), 2)
         empresa.calificacion = promedio
         db.commit()
         
