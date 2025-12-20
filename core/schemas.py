@@ -238,7 +238,7 @@ class HistorialOut(BaseModel):
     profesional_dni: int | None
     profesional_apellido: str | None
     profesional_nombre: str | None
-    estado_turno: str
+    estado_turno: str | None
 
     model_config = {"from_attributes": True}
 
@@ -362,7 +362,7 @@ class HistorialEmpresaOut(BaseModel):
     profesional_dni: int | None
     profesional_apellido: str | None
     profesional_nombre: str | None
-    estado_turno: str
+    estado_turno: str | None
 
     model_config = {"from_attributes": True}
 

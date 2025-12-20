@@ -275,7 +275,7 @@ def get_historial_turnos(current_user: models.Usuario = Depends(crud.get_current
             profesional_dni=h.profesional.dni if h.profesional else None,
             profesional_apellido=h.profesional.apellido if h.profesional else None,
             profesional_nombre=h.profesional.nombre if h.profesional else None,
-            estado_turno=h.estado_turno_usuario.estado))
+            estado_turno=h.estado_turno_usuario.estado if h.estado_turno_usuario else None))
     
     respuesta = schemas.HistorialResponse(
         historial=resultados, # resultados es una lista de objetos de clase HistorialOut de Pydantic
