@@ -191,7 +191,7 @@ def get_historial_turnos(empresa_id: int, current_user: models.Usuario = Depends
             profesional_dni=h.profesional.dni if h.profesional else None,
             profesional_apellido=h.profesional.apellido if h.profesional else None,
             profesional_nombre=h.profesional.nombre if h.profesional else None,
-            estado_turno=h.estado_turno_usuario.estado))
+            estado_turno=h.estado_turno_empresa.estado))
     
     respuesta = schemas.HistorialEmpresaResponse(
         historial=resultados, # resultados es una lista de objetos de clase HistoriaEmpresalOut de Pydantic
