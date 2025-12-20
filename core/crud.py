@@ -560,15 +560,20 @@ def reservar_turno(db: Session, user_id: int, empresa_id: int, fecha_hora: datet
 
             servicio_posible = i[0]
             # Voy a contar la cantidad de turnos existentes que se superponen con el turno que el cliente quiere sacar (nuevo turno) para este servicio
-            turnos_actuales = db.query(models.Turno).filter(
+
+            turnos = db.query(models.Turno).filter(
                 models.Turno.empresa_id == empresa_id, # turno de la misma empresa
                 models.Turno.servicio_id == servicio_posible.id, # turno del mismo servicio
-                models.Turno.fecha_hora + timedelta(minutes=models.Turno.duracion) > fecha_hora, # el turno existente termina después de que empieza el nuevo turno
                 models.Turno.fecha_hora < fecha_hora + timedelta(minutes=servicio_posible.duracion) # El turno existente empieza antes de que termine el nuevo turno
-                ).count()
+                )
+            
+            turnos_actuales = [
+                t for t in turnos
+                if t.fecha_hora + timedelta(minutes=t.duracion) > fecha_hora # el turno existente termina después de que empieza el nuevo turno
+            ]
 
             sd = i[1]
-            if turnos_actuales < sd.cant_turnos_max:
+            if len(turnos_actuales) < sd.cant_turnos_max:
                 servicios_posibles.append(servicio_posible)
                 
         if servicios_posibles:
@@ -607,14 +612,19 @@ def reservar_turno(db: Session, user_id: int, empresa_id: int, fecha_hora: datet
             return 'No hay disponibilidad configurada para este servicio en este horario'
         
         # Voy a contar la cantidad de turnos existentes que se superponen con el turno que el cliente quiere sacar (nuevo turno) para este servicio
-        turnos_actuales = db.query(models.Turno).filter(
+
+        turnos = db.query(models.Turno).filter(
             models.Turno.empresa_id == empresa_id, # turno de la misma empresa
             models.Turno.servicio_id == servicio.id, # turno del mismo servicio
-            models.Turno.fecha_hora + timedelta(minutes=models.Turno.duracion) > fecha_hora, # el turno existente termina después de que empieza el nuevo turno
             models.Turno.fecha_hora < fecha_hora + timedelta(minutes=servicio.duracion) # El turno existente empieza antes de que termine el nuevo turno
-            ).count()
+            )
 
-        if turnos_actuales < sd.cant_turnos_max:
+        turnos_actuales = [
+            t for t in turnos
+            if t.fecha_hora + timedelta(minutes=t.duracion) > fecha_hora # el turno existente termina después de que empieza el nuevo turno
+        ]
+
+        if len(turnos_actuales) < sd.cant_turnos_max:
             turno = models.Turno(
                 usuario_id=user_id,
                 empresa_id=empresa_id,
