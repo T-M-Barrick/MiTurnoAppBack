@@ -313,4 +313,4 @@ class Blacklist(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     jti = Column(String(128), unique=True, index=True, nullable=False)
     expires_at = Column(DateTime, index=True, nullable=False)
-    revoked_at = Column(DateTime, server_default=func.now(), nullable=False)
+    revoked_at = Column(DateTime, default=datetime.utcnow, nullable=False)
