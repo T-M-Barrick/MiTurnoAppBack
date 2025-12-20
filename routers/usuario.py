@@ -299,16 +299,17 @@ def reservar_turno(reserva: schemas.ReservaTurnoIn,
 
     turn = crud.reservar_turno(db, current_user.id, reserva.empresa_id, 
         reserva.fecha_hora, reserva.servicio_id, reserva.profesional_id)
-    
-    turno = db.query(models.Turno).options(
-        joinedload(models.Turno.usuario),
-        joinedload(models.Turno.profesional),
-        joinedload(models.Turno.empresa).joinedload(models.Empresa.direccion),
-        joinedload(models.Turno.estado_turno_usuario),
-        joinedload(models.Turno.estado_turno_empresa),
-        joinedload(models.Turno.recordatorio)).filter(models.Turno.id == turn.id).first()
 
     if isinstance(turno, models.Turno):
+
+        turno = db.query(models.Turno).options(
+            joinedload(models.Turno.usuario),
+            joinedload(models.Turno.profesional),
+            joinedload(models.Turno.empresa).joinedload(models.Empresa.direccion),
+            joinedload(models.Turno.estado_turno_usuario),
+            joinedload(models.Turno.estado_turno_empresa),
+            joinedload(models.Turno.recordatorio)).filter(models.Turno.id == turn.id).first()
+
         turno_out = schemas.TurnoOut(
             id=turno.id,
             empresa_id=empresa.id,
