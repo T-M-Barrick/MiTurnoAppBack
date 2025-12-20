@@ -34,5 +34,3 @@ def run_seeds(db: Session):
     seed_estados_turno(db)
     seed_recordatorios(db)
     db.commit()
-
-    mysql://root:gmtTJGRZzmWlZOzNMgVkUGEvVfDTlqaM@mysql.railway.internal:3306/railway
