@@ -521,21 +521,6 @@ class ServicioUpdate(BaseModel):
     
     model_config = {"from_attributes": True}
 
-'''
-Formato JSON de ServicioUpdate:
-{
-    "id": 1,
-    "nombre": "Corte",
-    "duracion": 30,
-    "precio": 100,
-    "aclaracion": Servicio de corte de pelo,
-    "profesional_id": 8,
-    "disponibilidades": [
-        {"dia": "Lunes", "hora_inicio": "09:00", "hora_fin": "11:00", "cant_max": 3}
-    ]
-}
-'''
-
 class ServiciosDeleteIn(BaseModel):
     servicios: list[int] # IDs de servicios a eliminar
 

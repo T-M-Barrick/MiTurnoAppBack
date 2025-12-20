@@ -1,3 +1,4 @@
+'''
 from sqlalchemy.orm import Session
 
 from core import models
@@ -39,3 +40,4 @@ run_seeds(db)
 db.close()
 
 print("✅ Seeds ejecutados correctamente")
+'''
