@@ -1,12 +1,14 @@
 from uuid import uuid4
 from datetime import datetime, timedelta
 
+from fastapi import Depends, Cookie
 from passlib.context import CryptContext
-from sqlalchemy.orm import Session
-from jose import jwt
+from sqlalchemy.orm import Session, joinedload, selectinload
+from jose import JWTError, jwt
 
-from core.models import Usuario, Token
-from core.variables import SECRET_KEY, ALGORITHM
+from core import models, exceptions, timezone
+from core.config import SECRET_KEY, ALGORITHM, COOKIE_NAME
+from core.database import get_db
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -21,14 +23,60 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 '''La autenticación es el proceso de verificar la identidad de alguien que ya tiene cuenta. Se compara lo 
 que ingresa (email + contraseña por ejemplo) con lo que está guardado en la base de datos. Si coincide, recibe el acceso a la cuenta.'''
 def authenticate(session: Session, email: str, password: str):
-    user = session.query(Usuario).filter_by(email=email).first()
+    user = session.query(models.Usuario).filter_by(email=email).first()
     if not user:
         return None
     if verify_password(password, user.hashed_password):
         return user
     return None
 
+# Esta función chequea el token. Se usa cuando el usuario hace algo con el back que no sea registrarse o loguearse
+def get_current_user(token: str = Cookie(default=None, # token: str = Cookie() le dice a FastAPI: Busca en la request HTTP una cookie llamada como config.COOKIE_NAME y pasala a esta función.
+                    alias=COOKIE_NAME), db: Session = Depends(get_db)):
+
+    if token is None:
+        raise exceptions.AuthTokenMissingError()
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM]) # Acá se chequea si está expirado o no el token
+        entity_id = int(payload.get("sub"))
+        jti = payload.get("jti")
+    except JWTError as e:
+        raise exceptions.AuthTokenInvalidExpiredError()
+
+    # Chequeo en DB si está revocado
+    if db.query(models.Blacklist).filter(models.Blacklist.jti == jti).first():
+        raise exceptions.AuthTokenRevokedError()
+    
+    # Traer usuario
+    user = (db.query(models.Usuario)
+        .options(
+            joinedload(models.Usuario.telefonos),
+            joinedload(models.Usuario.direcciones),
+            selectinload(models.Usuario.favoritos).joinedload(models.Empresa.direccion),
+            selectinload(models.Usuario.favoritos).joinedload(models.Empresa.telefonos),
+            selectinload(models.Usuario.favoritos).selectinload(models.Empresa.servicios),
+            joinedload(models.Usuario.miembro_empresas).joinedload(models.Miembro_Empresa.empresa))
+        .filter(models.Usuario.id == entity_id).first()
+    )
+
+    if not user:
+        raise exceptions.AuthUserNotFoundError()
+    
+    if not user.email_verificado:
+        raise exceptions.UserEmailNotVerifiedError()
+
+    return user
+
 # ------------------ TOKEN JWT ------------------ #
+def create_email_token(data: dict, expires_delta: timedelta):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + expires_delta
+    to_encode.update({"exp": expire})
+    to_encode.update({"type": "email"})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
 def create_access_token(data: dict, expires_delta: timedelta):
     to_encode = data.copy()
     jti = str(uuid4())
@@ -43,45 +91,144 @@ def create_access_token(data: dict, expires_delta: timedelta):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+# ------------------ VERIFICACIONES ------------------ #
+def verify_email_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "email":
+            raise exceptions.VerifyEmailInvalidExpiredTokenError()
+        return payload
+    except JWTError:
+        raise exceptions.VerifyEmailInvalidExpiredTokenError()
 
+# ---------------- RECUPERO DE CONTRASEÑA ---------------- #
 
-# ---------------- RECUPERAR CONTRASEÑA ---------------- #
+# ---------------- VÍA EMAIL ---------------- #
 
-# ---------------- GENERAR TOKEN ---------------- #
 def generate_password_reset_token(session: Session, email: str) -> str:
-    user = session.query(Usuario).filter_by(email=email).first()
+    user = session.query(models.Usuario).filter_by(email=email).first()
+
     if not user:
-        raise ValueError("Email no registrado")
+        raise exceptions.UserNotFoundError() # email no registrado
+
+    if not user.email_verificado:
+        raise exceptions.UserEmailNotVerifiedError()
 
     token = str(uuid4())
-    expires_at = datetime.utcnow() + timedelta(hours=1)
 
-    reset_entry = Token(usuario_id=user.id, token=token, expires_at=expires_at)
-    session.add(reset_entry)
-    session.commit()
-    return token
+    ahora_utc = timezone.to_naive_utc(timezone.now_utc())
 
-# ---------------- RESETEAR CONTRASEÑA (VÍA MAIL) ---------------- #
-def reset_password(session: Session, token: str, new_password: str):
+    expires_at = ahora_utc + timedelta(hours=1)
+
+    try:
+        reset_entry = models.Token(usuario_id=user.id, token=token, created_at=ahora_utc, expires_at=expires_at)
+        session.add(reset_entry)
+        session.commit()
+        return token
+    except Exception:
+        session.rollback()
+        raise
+
+def reset_password_email(session: Session, token: str, new_password: str):
 
     # Se busca el token en la tabla Token
-    token_entry = session.query(Token).filter_by(token=token).first()
+    token_entry = session.query(models.Token).filter_by(token=token).first()
 
-    # Se valida que exista y que no haya expirado
+    # Se ve que exista y que no haya expirado
     if not token_entry:
-        raise ValueError("Token inválido")
+        raise exceptions.InvalidResetTokenError()
 
-    if token_entry.expires_at < datetime.utcnow():
-        raise ValueError("Token expirado")
+    ahora_utc = timezone.to_naive_utc(timezone.now_utc())
+    if token_entry.expires_at < ahora_utc:
+        raise exceptions.ExpiredResetTokenError()
     
-    # Se cambia la contraseña del usuario
-    user = session.query(Usuario).filter_by(id=token_entry.usuario_id).first()
-    user.hashed_password = get_password_hash(new_password)
+    user = session.query(models.Usuario).filter_by(id=token_entry.usuario_id).first()
+    if not user:
+        raise exceptions.InvalidResetTokenError()
 
-    # Se borra el token de la base de datos para que no pueda reutilizarse (no reinicia el id)
-    session.delete(token_entry)
+    try:        
+        # Se cambia la contraseña del usuario
+        user.hashed_password = get_password_hash(new_password)
 
-    # Guardo los cambios
-    session.commit()
+        # Se borra el token de la base de datos para que no pueda reutilizarse (no reinicia el id)
+        session.delete(token_entry)
 
-    return user
+        # Guardo los cambios
+        session.commit()
+
+        return user
+
+    except Exception:
+        session.rollback()
+        raise
+
+# ---------------- VÍA TELÉFONO ---------------- #
+
+def generate_password_reset_otp(db: Session, telefono: str, email: str):
+
+    usuario = db.query(models.Usuario).join(models.Telefono).filter(models.Telefono.numero == telefono).first()
+
+    if not usuario:
+        raise exceptions.UserNotFoundError()
+
+    if usuario.email != email:
+        raise exceptions.ForgotPasswordEmailMismatchError()
+    
+    if not usuario.email_verificado:
+        raise exceptions.UserEmailNotVerifiedError()
+
+    try:
+        # Invalidar OTPs anteriores
+        db.query(models.OTPCode).filter(
+            models.OTPCode.usuario_id == usuario.id,
+            models.OTPCode.used == False).update({models.OTPCode.used: True})
+
+        # Generar OTP
+        otp = mensajes.generar_otp()
+
+        ahora_utc = timezone.to_naive_utc(timezone.now_utc())
+
+        nuevo_otp = models.OTPCode(
+            usuario_id=usuario.id,
+            code=otp,
+            created_at=ahora_utc,
+            expires_at=ahora_utc + timedelta(minutes=2)
+        )
+
+        db.add(nuevo_otp)
+        db.commit()
+
+        return usuario, otp
+
+    except Exception:
+        db.rollback()
+        raise
+
+def reset_password_mobile(db: Session, telefono: str, otp: str, new_password: str):
+
+    usuario = db.query(models.Usuario).join(models.Telefono).filter(models.Telefono.numero == telefono).first()
+
+    if not usuario:
+        raise exceptions.ResetOTPError(field="otp")
+
+    try:
+        ahora_utc = timezone.to_naive_utc(timezone.now_utc())
+
+        otp_entry = db.query(models.OTPCode).filter(
+            models.OTPCode.usuario_id == usuario.id,
+            models.OTPCode.code == otp,
+            models.OTPCode.expires_at > ahora_utc,
+            models.OTPCode.used == False).first()
+
+        if not otp_entry:
+            raise exceptions.ResetOTPError(field="otp") # puede ser por invalidez o expiración
+
+        usuario.hashed_password = get_password_hash(new_password)
+        otp_entry.used = True
+
+        db.commit()
+        return usuario
+
+    except Exception:
+        db.rollback()
+        raise

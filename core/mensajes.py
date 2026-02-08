@@ -1,91 +1,196 @@
 import random
+import logging
 
 import requests
-from postmarker.core import PostmarkClient
+import sib_api_v3_sdk
+from sib_api_v3_sdk.rest import ApiException
 
-from core.variables import FRONTEND_URL, EMAIL, SERVER_API_TOKEN_POSTMARK
+from core.config import FRONTEND_URL, EMAIL, SERVER_API_KEY_BREVO
+from core import exceptions, timezone
 
-# Se inicializa el cliente con la API Key de Postmark
-client_postmark = PostmarkClient(server_token=SERVER_API_TOKEN_POSTMARK)
+logger = logging.getLogger(__name__)
+
+# Configurar la API Key
+configuration = sib_api_v3_sdk.Configuration()
+configuration.api_key['api-key'] = SERVER_API_KEY_BREVO # clave de Brevo
+
+# Crear cliente
+api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
+
+SENDER_NAME = "MiTurno"
+FRONT_VERIFICACTION_EMAIL_URL = f"{FRONTEND_URL}/pages/usuarios/verificacion-email/verificacion-email?token="
+FRONT_INVITE_EMAIL_URL = f"{FRONTEND_URL}/pages/usuarios/aceptar-invitacion/aceptar-invitacion?token="
+FRONT_RESET_EMAIL_URL = f"{FRONTEND_URL}/pages/usuarios/restablecer-password/reset-password.html?token="
 
 # ------------------ MAIL DE INVITACIÓN ------------------ #
+def send_verification_email(to_email: str, token: str):
+    verify_link = FRONT_VERIFICACTION_EMAIL_URL + token
+
+    send_email = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": to_email}],
+        sender={"name": SENDER_NAME, "email": EMAIL},
+        template_id=12345,  # ID de la plantilla que creaste en Brevo
+        params={
+            "verify_link": verify_link
+        }
+    )
+
+    try:
+        api_instance.send_transac_email(send_email)
+    except ApiException as e:
+        logger.error("Error enviando correo: %s", e)
+        raise exceptions.EmailSendFailedError()
+
 def send_invite_email(to_email: str, token: str, empresa_nombre: str, rol: str):
-    invite_link = f"{FRONTEND_URL}/pages/usuarios/aceptar-invitacion/aceptar-invitacion?token={token}"
-    
-    html_body = f"""
+    invite_link = FRONT_INVITE_EMAIL_URL + token
+    '''
+    html_content = f"""
     <p>Fuiste invitado a unirte a <strong>{empresa_nombre}</strong> como <strong>{rol}</strong>.</p>
     <p>Hacé click aquí para aceptar: <a href="{invite_link}">{invite_link}</a></p>
     """
-    
-    client_postmark.emails.send(
-        From=EMAIL,
-        To=to_email,
-        Subject=f"Invitación a {empresa_nombre}",
-        HtmlBody=html_body,
-        TextBody=f"Fuiste invitado a {empresa_nombre} como {rol}. Link: {invite_link}"
+
+    text_content = f"Fuiste invitado a {empresa_nombre} como {rol}. Link: {invite_link}"
+
+    send_email = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": to_email}],
+        sender={"name": SENDER_NAME, "email": "admin@miturno.site"},  # tu dominio autenticado
+        subject=f"Invitación a {empresa_nombre}",
+        html_content=html_content,
+        text_content=text_content
     )
+    '''
+    send_email = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": to_email}],
+        sender={"name": SENDER_NAME, "email": EMAIL},
+        template_id=12345,  # ID de la plantilla que creaste en Brevo
+        params={
+            "empresa_nombre": empresa_nombre,
+            "rol": rol,
+            "invite_link": invite_link
+        }
+    )
+
+    try:
+        api_instance.send_transac_email(send_email)
+    except ApiException as e:
+        logger.error("Error enviando correo: %s", e)
+        raise exceptions.EmailSendFailedError() from e
 
 # ------------------ MAIL PARA RESETEO DE CONTRASEÑA ------------------ #
 def send_reset_email(to_email: str, token: str):
-    reset_link = f"{FRONTEND_URL}/pages/usuarios/restablecer-password/reset-password.html?token={token}"
-    
-    subject = "Recuperar contraseña"
-    body = f"Para resetear tu contraseña hacé click aquí: {reset_link}"
+    reset_link = FRONT_RESET_EMAIL_URL + token
+    '''
+    html_body = f"<p>Para resetear tu contraseña hacé click aquí: <a href='{reset_link}'>{reset_link}</a></p>"
+    text_body = f"Para resetear tu contraseña hacé click aquí: {reset_link}"
 
-    client_postmark.emails.send(
-        From=EMAIL, # email verificado en Postmark
-        To=to_email,
-        Subject=subject,
-        HtmlBody=body,
-        TextBody=body)
+    send_email = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": to_email}],
+        sender={"name": SENDER_NAME, "email": EMAIL},
+        subject="Recuperar contraseña",
+        html_content=html_body,
+        text_content=text_body
+    )
+    '''
+    send_email = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": to_email}],
+        sender={"name": SENDER_NAME, "email": EMAIL},
+        template_id=12345,  # ID de la plantilla que creaste en Brevo
+        params={
+            "reset_link": reset_link
+        }
+    )
+
+    try:
+        api_instance.send_transac_email(send_email)
+    except ApiException as e:
+        logger.error("Error enviando correo: %s", e)
+        raise exceptions.EmailSendFailedError()
 
 # ------------------ MAIL PARA LUEGO DE CANCELACIÓN ------------------ #
 def send_turno_cancelado_email(
     to_email: str,
     us_emp_nombre: str,
-    fecha_hora: str,
-    servicio: str):
+    fecha_hora_utc: datetime,
+    servicio: str,
+    motivo: str | None):
 
-    fecha = fecha_hora.strftime("%d/%m/%Y")
-    hora = fecha_hora.strftime("%H:%M")
+    fecha_hora_utc = timezone.ensure_utc(fecha_hora_utc) # garantía defensiva
 
+    fecha_hora_local = timezone.utc_to_local(fecha_hora_utc) # convertimos a horario local para el usuario
+
+    fecha = fecha_hora_local.strftime("%d/%m/%Y")
+    hora = fecha_hora_local.strftime("%H:%M")
+    
+    motivo = motivo.strip() if motivo else None
+
+    '''
     subject = f"Turno cancelado por {us_emp_nombre}"
+    
+    partes = [
+        f"<p><strong>{us_emp_nombre}</strong> ha cancelado el turno programado
+        para el día <strong>{fecha}</strong> a las <strong>{hora}</strong> hs.</p>"
+    ]
 
-    mensaje = f"""
-    <p><strong>{us_emp_nombre}</strong> ha cancelado el turno programado
-    para el día <strong>{fecha}</strong> a las <strong>{hora}</strong> hs.</p>
+    if motivo:
+        partes.append(f"<p><strong>Motivo:</strong> {motivo}</p>")
 
-    <p><strong>Servicio:</strong> {servicio}</p>
+    partes.append(f"<p><strong>Servicio:</strong> {servicio}</p>")
 
-    <p>Muchas gracias por su comprensión.</p>
-    """
+    mensaje_html = "\n".join(partes)
 
     html_body = f"""
     <p>Hola,</p>
-
-    {mensaje}
-
+    {mensaje_html}
+    <p>Muchas gracias por su comprensión.</p>
     <p>— Equipo MiTurno</p>
     """
 
+    partes = [
+        f"{us_emp_nombre} ha cancelado el turno programado
+        para el día {fecha} a las {hora} hs."
+    ]
+
+    if motivo:
+        partes.append(f"Motivo: {motivo}")
+
+    partes.append(f"Servicio: {servicio}")
+
+    mensaje_txt = "\n".join(partes)
+
     text_body = f"""
-    {us_emp_nombre} ha cancelado el turno programado
-    para el día {fecha} a las {hora} hs.
-
-    Servicio: {servicio}
-
+    Hola,
+    {mensaje_txt}
     Muchas gracias por su comprensión.
-
     — Equipo MiTurno
     """
 
-    client_postmark.emails.send(
-        From=EMAIL,
-        To=to_email,
-        Subject=subject,
-        HtmlBody=html_body,
-        TextBody=text_body
+    send_email = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": to_email}],
+        sender={"name": SENDER_NAME, "email": EMAIL},
+        subject=subject,
+        html_content=html_body,
+        text_content=text_body
     )
+    '''
+
+    send_email = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": to_email}],
+        sender={"name": SENDER_NAME, "email": EMAIL},
+        template_id=12345,  # ID de la plantilla que creaste en Brevo
+        params={
+            "us_emp_nombre": us_emp_nombre,
+            "fecha": fecha,
+            "hora": hora,
+            "servicio": servicio,
+            "motivo": motivo
+        }
+    )
+
+    try:
+        api_instance.send_transac_email(send_email)
+    except ApiException as e:
+        logger.error("Error enviando correo: %s", e)
+        raise exceptions.EmailSendFailedError() from e
 
 def generar_otp():
     return str(random.randint(100000, 999999))
@@ -94,19 +199,19 @@ from twilio.rest import Client
 
 client_twilio = Client(TWILIO_ACCOUNT_SID, TWILIO_TOKEN)
 
-def enviar_sms(to_number: int, mensaje: str):
+def enviar_sms(to_number: str, mensaje: str):
     """
     Envía un SMS a un número dado usando Twilio.
 
     Args:
-        to_number (int): número del destinatario, sin prefijo internacional
+        to_number (str): número del destinatario, con prefijo internacional
         mensaje (str): texto del mensaje
     """
     try:
         message = client_twilio.messages.create(
             body=mensaje,
             from_=TWILIO_TELEFONO,
-            to=f'+54{to_number}'
+            to='to_number'
         )
         return to_number
     except Exception as e:
@@ -125,7 +230,7 @@ def enviar_whatsapp(to_number, message):
 
     data = {
         "messaging_product": "whatsapp",
-        "to": f"+54{to_number}",
+        "to": "to_number",
         "type": "text",
         "text": {"body": message}
     }
@@ -142,7 +247,7 @@ def enviar_whatsapp_template(to_number, template_name, variables):
 
     data = {
         "messaging_product": "whatsapp",
-        "to": f"+54{to_number}",
+        "to": "to_number",
         "type": "template",
         "template": {
             "name": template_name,

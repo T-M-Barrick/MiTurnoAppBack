@@ -1,13 +1,14 @@
-fastapi==0.116.1
-uvicorn==0.35.0
-SQLAlchemy==2.0.43
-PyMySQL==1.1.2
-pydantic[email]==2.11.7
-passlib[bcrypt]==1.7.4 # passlib + las librerías extra para que bcrypt funcione.
-bcrypt==4.0.1
-python-dotenv==1.1.1
-APScheduler==3.11.0 # es una librería que permite programar tareas que se ejecuten en momentos específicos o de forma periódica.
-python-jose[cryptography]==3.5.0
-requests==2.32.5
-pillow==12.0.0
-postmarker==1.0
+fastapi==0.116.1 # framework web
+uvicorn==0.35.0 # servidor ASGI
+SQLAlchemy==2.0.43 # ORM
+PyMySQL==1.1.2 # driver MySQL
+pydantic[email]==2.11.7 # validación de datos con soporte de email
+passlib[bcrypt]==1.7.4 # passlib + las librerías extra para que bcrypt funcione
+bcrypt==4.0.1 # librería de hashing de contraseñas
+python-dotenv==1.1.1 # carga variables de entorno desde .env
+APScheduler==3.11.0 # es una librería que permite programar tareas que se ejecuten en momentos específicos o de forma periódica
+python-jose[cryptography]==3.5.0 # JWT y criptografía
+requests==2.32.5 # requests HTTP
+pillow==12.0.0 # manipulación de imágenes
+cloudinary==1.44.1 # subida y gestión de imágenes en Cloudinary
+sib-api-v3-sdk==7.6.0 # envío de emails vía Brevo

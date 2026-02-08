@@ -7,24 +7,20 @@ from sqlalchemy.orm import Session, joinedload, selectinload # Session de SQLAlc
 from core import models, constantes, exceptions, config, autenticacion, timezone
 from core.database import get_db
 from crud import common as crud_common
-from crud import empresa as crud_empresa
+from crud import sucursal as crud_sucursal
 from schemas import common as schemas_common
-from schemas import empresa as schemas_empresa
-from mappers import empresa as mappers_empresa
+from schemas import sucursal as schemas_sucursal
+from mappers import sucursal as mappers_sucursal
 
-router = APIRouter(prefix="/empresas", tags=["Empresas"])
-# APIRouter() crea un router, que es como una mini “sub-aplicación” dentro de FastAPI.
-# prefix="/empresas" agrega un prefijo automático a todos los endpoints que se declaren dentro del router (este módulo).
-# tags=["Empresas"] sirve para organizar la documentación automática de Swagger (/docs).
+router = APIRouter(prefix="/sucursales", tags=["Sucursales"])
 
-# Crear empresa
-# {"message": "Empresa creada con éxito"}
-@router.post("/", status_code=201) # @router.post("/empresas/") indica que esta función responde a POST en /empresas/.
-def create_empresa(empresa_nueva: schemas_empresa.EmpresaCreate, response: Response, 
+# {"message": "Sucursal creada con éxito"}
+@router.post("/", status_code=201)
+def create_sucursal(sucursal_nueva: schemas_sucursal.SucursalCreate, response: Response, 
     current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
 
     try:
-        empresa = crud_empresa.create_empresa(db, empresa_nueva) # Devuelve un objeto de clase Empresa de SQLAlchemy
+        sucursal = crud_sucursal.create_sucursal(db, sucursal_nueva) # Devuelve un objeto de clase Sucursal de SQLAlchemy
 
         if empresa and empresa.email_verificado:
             return {}
@@ -56,27 +52,27 @@ def create_empresa(empresa_nueva: schemas_empresa.EmpresaCreate, response: Respo
 
 # {"message": "Correo verificado con éxito"}
 @router.get("/verificacion/email", status_code=204)
-def verificacion_email_empresa(token: str, db: Session = Depends(get_db)):
+def verificacion_email_sucursal(token: str, db: Session = Depends(get_db)):
 
     crud_common.verificacion_email(db, token, usuario=False)
 
-@router.get("/{empresa_id}", response_model=schemas_empresa.EmpresaHomeOut, status_code=200)
-def acceder_empresa(empresa_id: int, current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
+@router.get("/{sucursal_id}", response_model=schemas_sucursal.SucursalHomeOut, status_code=200)
+def acceder_sucursal(sucursal_id: int, current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
 
-    empresa, current_user_rol = crud_empresa.acceder(db, empresa_id, current_user.id)
+    sucursal, current_user_rol = crud_sucursal.acceder(db, sucursal_id, current_user.id)
     
-    emp = mappers_empresa.empresa_home_out(empresa, current_user_rol)
+    emp = mappers_sucursal.sucursal_home_out(sucursal, current_user_rol)
 
     return emp
 
-# Actualizar empresa (datos simples, teléfonos y dirección)
-@router.patch("/{empresa_id}", response_model=schemas_empresa.EmpresaHomeOut, status_code=200)
-def update_empresa(empresa_id: int, empresa_update: schemas_empresa.EmpresaUpdateIn, 
+# Actualizar sucursal (datos simples, teléfonos y dirección)
+@router.patch("/{sucursal_id}", response_model=schemas_sucursal.SucursalHomeOut, status_code=200)
+def update_sucursal(sucursal_id: int, sucursal_update: schemas_sucursal.SucursalUpdateIn, 
     current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
 
-    empresa, current_user_rol = crud_empresa.update(db, empresa_id, current_user.id, empresa_update)
+    sucursal, current_user_rol = crud_sucursal.update(db, sucursal_id, current_user.id, sucursal_update)
 
-    emp = mappers_empresa.empresa_home_out(empresa, current_user_rol)
+    emp = mappers_sucursal.sucursal_home_out(sucursal, current_user_rol)
 
     return emp
 

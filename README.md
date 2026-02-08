@@ -83,9 +83,9 @@ La API quedará disponible en: http://localhost:8000
 - POST /auth/login – Iniciar sesión y obtener token JWT
 
 ### Usuarios
-- GET /users/me – Obtener perfil del usuario autenticado
-- PATCH /users/me – Editar perfil
-- DELETE /users/me – Eliminar cuenta
+- GET /usuarios/me – Obtener perfil del usuario autenticado
+- PATCH /usuarios/me – Editar perfil
+- DELETE /usuarios/me – Eliminar cuenta
 
 ### Turnos
 - POST /turnos – Crear un turno

@@ -1,94 +1,87 @@
 import requests
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 
+from core import exceptions
+from core.constantes import GEOREF_URL, NOMINATIM_URL
 from core.auxiliares import buscar_localidad, buscar_direccion_completa
-from core.variables import GEOREF_URL, NOMINATIM_URL
 
 router = APIRouter(prefix="/georef", tags=["Geo"])
 
-@router.get("/provincias")
+@router.get("/provincias", status_code=200)
 def get_provincias():
+
     try:
         r = requests.get(f"{GEOREF_URL}/provincias", timeout=5)
-        data = r.json()
+        r.raise_for_status()
+    except requests.exceptions.RequestException:
+        raise exceptions.GeoRefUnavailableError()
 
-        if "provincias" not in data:
-            return {"error": "La API Georef no devolvió provincias", "detalle": data}
+    try:
+        resultados = r.json()
+    except ValueError as e:
+        raise exceptions.GeoRefInvalidResponseError() from e
 
-        # Orden alfabético por nombre
-        provincias = data["provincias"]
-        provincias.sort(key=lambda x: x["nombre"])
+    if "provincias" not in resultados:
+        raise exceptions.GeoRefInvalidResponseError()
 
-        return provincias
+    provincias = resultados["provincias"]
+    provincias.sort(key=lambda x: x["nombre"])
 
-    except Exception as e:
-        return {"error": "Falló la conexión con la API Georef", "detalle": str(e)}
+    return provincias
 
-@router.get("/departamentos")
+@router.get("/departamentos", status_code=200)
 def get_departamentos(provincia: str):
+
     try:
-        r = requests.get(
-            f"{GEOREF_URL}/departamentos",
-            params={"provincia": provincia, "max": 500},
-            timeout=5
-        )
-        data = r.json()
+        r = requests.get(f"{GEOREF_URL}/departamentos", params={"provincia": provincia, "max": 500}, timeout=5)
+        r.raise_for_status()
+    except requests.exceptions.RequestException:
+        raise exceptions.GeoRefUnavailableError()
 
-        if "departamentos" not in data:
-            return {"error": "La API Georef no devolvió departamentos", "detalle": data}
+    try:
+        resultados = r.json()
+    except ValueError as e:
+        raise exceptions.GeoRefInvalidResponseError() from e
 
-        departamentos = data["departamentos"]
-        departamentos.sort(key=lambda x: x["nombre"])
+    if "departamentos" not in resultados:
+        raise exceptions.GeoRefInvalidResponseError()
 
-        return departamentos
+    departamentos = resultados["departamentos"]
+    departamentos.sort(key=lambda x: x["nombre"])
 
-    except Exception as e:
-        return {"error": "Falló la conexión con la API Georef", "detalle": str(e)}
+    return departamentos
 
-@router.get("/localidades")
+@router.get("/localidades", status_code=200)
 def get_localidades(provincia: str, municipio: str):
+
     try:
-        r = requests.get(
-            f"{GEOREF_URL}/localidades",
-            params={"provincia": provincia, "municipio": municipio, "max": 500},
-            timeout=5
-        )
-        data = r.json()
+        r = requests.get(f"{GEOREF_URL}/localidades", params={"provincia": provincia, "municipio": municipio, "max": 500}, timeout=5)
+        r.raise_for_status()
+    except requests.exceptions.RequestException:
+        raise exceptions.GeoRefUnavailableError()
 
-        if "localidades" not in data:
-            return {"error": "La API Georef no devolvió localidades", "detalle": data}
+    try:
+        resultados = r.json()
+    except ValueError as e:
+        raise exceptions.GeoRefInvalidResponseError() from e
 
-        localidades = data["localidades"]
-        localidades.sort(key=lambda x: x["nombre"])
+    if "localidades" not in resultados:
+        raise exceptions.GeoRefInvalidResponseError()
 
-        return localidades
+    localidades = resultados["localidades"]
+    localidades.sort(key=lambda x: x["nombre"])
 
-    except Exception as e:
-        return {"error": "Falló la conexión con la API Georef", "detalle": str(e)}
+    return localidades
 
-@router.get("/coordenadas")
-def get_coordenadas(
-    provincia: str,
-    municipio: str,
-    localidad: str,
-    calle: str | None = None,
-    altura: str | None = None
-):
-    # Si llega calle + altura → buscar dirección exacta
+@router.get("/coordenadas", status_code=200)
+def get_coordenadas(provincia: str, municipio: str, localidad: str, calle: str | None = None, altura: str | None = None):
+
     if calle and altura:
-        return buscar_direccion_completa(
-            provincia=provincia,
-            municipio=municipio,
-            localidad=localidad,
-            calle=calle,
-            altura=altura,
-            url=NOMINATIM_URL
-        )
-
-    # Caso contrario → buscar solo localidad
-    return buscar_localidad(
-        provincia=provincia,
-        municipio=municipio,
-        localidad=localidad,
-        url=NOMINATIM_URL
-    )
+        # Si llega calle + altura → buscar dirección exacta
+        direccion_completa = buscar_direccion_completa(provincia=provincia, 
+            municipio=municipio, localidad=localidad, calle=calle, altura=altura, url=NOMINATIM_URL)
+        return direccion_completa
+    
+        # Caso contrario → buscar solo localidad
+    loc = buscar_localidad(provincia=provincia, municipio=municipio, localidad=localidad, url=NOMINATIM_URL)
+    return loc
