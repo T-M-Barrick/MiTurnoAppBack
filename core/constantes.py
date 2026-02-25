@@ -1,17 +1,12 @@
 from enum import intEnum
 
-class Rol(IntEnum):
-    propietario = 1
-    gerente = 2
-    empleado = 3
-
 ACCIONES_DE_ENVIO_DE_EMAIL = {
     "REGISTER": "registro de usuario",
     "RESET_PASSWORD": "restablecimiento de contraseña",
     "INVITATION": "invitación a empresa",
 }
 
-# Estados que debe tener el turno para poder ser movido a la tabla Historial
+# Estados que debe tener el turno para poder ser eliminado
 LISTA_PARCIAL_DE_ESTADOS = ['CANCELADO_POR_USUARIO', 'CANCELADO_POR_EMPRESA', 'CUMPLIDO', 'NO_CUMPLIDO']
 
 DIAS_NOMBRES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]

@@ -1,5 +1,5 @@
 import requests
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Path, Query, status
 
 from core import exceptions
 from core.constantes import GEOREF_URL, NOMINATIM_URL
@@ -30,7 +30,9 @@ def get_provincias():
     return provincias
 
 @router.get("/departamentos", status_code=200)
-def get_departamentos(provincia: str):
+def get_departamentos(
+    provincia: str = Query(..., min_length=1, max_length=255),
+):
 
     try:
         r = requests.get(f"{GEOREF_URL}/departamentos", params={"provincia": provincia, "max": 500}, timeout=5)
@@ -52,7 +54,10 @@ def get_departamentos(provincia: str):
     return departamentos
 
 @router.get("/localidades", status_code=200)
-def get_localidades(provincia: str, municipio: str):
+def get_localidades(
+    provincia: str = Query(..., min_length=1, max_length=255),
+    municipio: str = Query(..., min_length=1, max_length=255),
+):
 
     try:
         r = requests.get(f"{GEOREF_URL}/localidades", params={"provincia": provincia, "municipio": municipio, "max": 500}, timeout=5)
@@ -74,7 +79,13 @@ def get_localidades(provincia: str, municipio: str):
     return localidades
 
 @router.get("/coordenadas", status_code=200)
-def get_coordenadas(provincia: str, municipio: str, localidad: str, calle: str | None = None, altura: str | None = None):
+def get_coordenadas(
+    provincia: str = Query(..., min_length=1, max_length=255),
+    municipio: str = Query(..., min_length=1, max_length=255),
+    localidad: str = Query(..., min_length=1, max_length=255),
+    calle: str | None = Query(default=None, min_length=1, max_length=255),
+    altura: str | None = Query(default=None, min_length=1, max_length=255),
+):
 
     if calle and altura:
         # Si llega calle + altura → buscar dirección exacta

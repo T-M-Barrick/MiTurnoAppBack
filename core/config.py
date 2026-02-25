@@ -9,6 +9,9 @@ load_dotenv() # carga las variables de entorno
 PORT = int(os.getenv("PORT", 8000)) # puerto del back. Railway asigna PORT
 
 FRONTEND_URL = os.getenv("FRONTEND_URL")
+FRONT_VERIFICACTION_EMAIL_PATH = os.getenv("FRONT_VERIFICACTION_EMAIL_PATH")
+FRONT_INVITE_EMAIL_PATH = os.getenv("FRONT_INVITE_EMAIL_PATH")
+FRONT_RESET_EMAIL_PATH = os.getenv("FRONT_RESET_EMAIL_PATH")
 
 EMAIL = os.getenv("EMAIL")
 SERVER API_KEY_BREVO = os.getenv("SERVER_API_KEY_BREVO")

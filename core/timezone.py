@@ -7,8 +7,8 @@ from core import constantes, exceptions
 # CONFIGURACIÓN CENTRAL
 # =========================
 
-# Zona horaria de la empresa (por ahora única)
-EMPRESA_TZ = ZoneInfo("America/Argentina/Buenos_Aires") # representa el huso de todo Argentina
+# Zona horaria de la sucursal (por ahora única)
+SUCURSAL_TZ = ZoneInfo("America/Argentina/Buenos_Aires") # representa el huso de todo Argentina
 
 # UTC explícito
 UTC = timezone.utc
@@ -56,7 +56,7 @@ def ensure_utc(dt: datetime) -> datetime:
 
 def utc_to_local(dt_utc: datetime) -> datetime:
     """
-    Devuelve un datetime aware en la zona horaria local de la empresa:
+    Devuelve un datetime aware en la zona horaria local de la sucursal:
     - Si entra naive, lo asume en UTC y luego lo convierte a aware horario local cambiándole la hora.
     - Si entra aware horario local, lanza error.
     - Si entra aware UTC, lo convierte a aware horario local cambiándole la hora.
@@ -64,7 +64,7 @@ def utc_to_local(dt_utc: datetime) -> datetime:
     if dt_utc.tzinfo is not None and dt_utc.utcoffset() != UTC.utcoffset(None):
         raise exceptions.TimezoneInvalidError() # utc_to_local no acepta datetime aware no UTC
     dt_utc = ensure_utc(dt_utc)
-    return dt_utc.astimezone(EMPRESA_TZ)
+    return dt_utc.astimezone(SUCURSAL_TZ)
 
 def local_to_utc(dt_local: datetime) -> datetime:
     """
@@ -76,7 +76,7 @@ def local_to_utc(dt_local: datetime) -> datetime:
     if dt_local.tzinfo is not None and dt_local.utcoffset() == UTC.utcoffset(None):
         raise exceptions.TimezoneInvalidError() # local_to_utc no acepta datetime aware UTC
     if dt_local.tzinfo is None:
-        dt_local = dt_local.replace(tzinfo=EMPRESA_TZ)
+        dt_local = dt_local.replace(tzinfo=SUCURSAL_TZ)
     return dt_local.astimezone(UTC)
 
 def to_naive_utc(dt_utc: datetime) -> datetime:

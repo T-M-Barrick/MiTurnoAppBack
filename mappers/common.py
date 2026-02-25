@@ -23,3 +23,14 @@ def disponibilidad_servicio(disponibilidad):
         hora_fin=disponibilidad.hora_fin,
         intervalo=disponibilidad.intervalo,
         cant_turnos_max=disponibilidad.cant_turnos_max)
+
+def miembro_out(miembro):
+
+    miembro_out = schemas_common.MiembroOut(
+        id=miembro.usuario.id,
+        dni=miembro.usuario.dni,
+        apellido=miembro.usuario.apellido,
+        nombre=miembro.usuario.nombre,
+        email=miembro.usuario.email)
+
+    return miembro_out

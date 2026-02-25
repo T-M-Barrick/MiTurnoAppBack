@@ -25,7 +25,19 @@ class UserNotFoundError(UserError):
 class UserEmailNotVerifiedError(UserError):
     status_code = 403
     code = "USER_EMAIL_NOT_VERIFIED"
-    default_message = "Debes verificar primero tu correo electrónico para poder acceder a tu cuenta"
+    default_message = (
+        "Email de usuario registrado pero pendiente de verificación. Por favor, confirma tu cuenta mediante el enlace enviado a tu correo para poder acceder a ella."
+    )
+
+class UserAlreadyExistsError(UserError):
+    status_code = 409
+    code = "USER_ALREADY_EXISTS"
+    default_message = "Ya existe un usuario registrado con ese correo electrónico"
+
+class UserBlockedBySucursalError(UserError):
+    status_code = 403
+    code = "USER_BLOCKED_BY_SUCURSAL"
+    default_message = "Fuiste bloqueado por {nombre}"
 
 # ------------------ Domain Empresa Errores ------------------ #
 
@@ -42,27 +54,19 @@ class EmpresaNotFoundError(EmpresaError):
 class EmpresaEmailNotVerifiedError(EmpresaError):
     status_code = 403
     code = "EMPRESA_EMAIL_NOT_VERIFIED"
-    default_message = "El correo electrónico de la empresa debe ser verificado antes para continuar"
+    default_message = (
+        "Email de empresa registrado pero pendiente de verificación. Por favor, confirma tu cuenta mediante el enlace enviado a tu correo para poder acceder a ella."
+    )
 
-class EmpresaUserBlockedError(EmpresaError):
-    status_code = 403
-    code = "EMPRESA_USER_BLOCKED"
-    default_message = "Fuise bloqueado por esta empresa"
-
-class EmpresaBlockMiembroError(EmpresaError):
-    status_code = 403
-    code = "EMPRESA_BLOCK_MIEMBRO"
-    default_message = "Una empresa no puede bloquear a un usuario que pertenece a la misma"
-
-class EmpresaAlreadyExistsInFavoritosError(EmpresaError):
+class EmpresaAlreadyExistsError(EmpresaError):
     status_code = 409
-    code = "EMPRESA_ALREADY_EXISTS_IN_FAVORITOS"
-    default_message = "La empresa ya se encuentra en favoritos"
+    code = "EMPRESA_ALREADY_EXISTS"
+    default_message = "Ya existe una empresa registrada con ese correo electrónico"
 
-class EmpresaDoesNotExistInFavoritosError(EmpresaError):
+class EmpresaHasNoSucursalError(EmpresaError):
     status_code = 404
-    code = "EMPRESA_DOES_NOT_EXIST_IN_FAVORITOS"
-    default_message = "La empresa no se encuentra en favoritos"
+    code = "EMPRESA_HAS_NO_SUCURSAL"
+    default_message = "La empresa no tiene sucursal asociada"
 
 class EmpresaMiembroNotFoundError(EmpresaError):
     status_code = 404
@@ -72,87 +76,251 @@ class EmpresaMiembroNotFoundError(EmpresaError):
 class EmpresaMiembroAlreadyExistsError(EmpresaError):
     status_code = 409
     code = "EMPRESA_MIEMBRO_ALREADY_EXISTS"
-    default_message = "El usuario ya es miembro de esta empresa"
-
-class EmpresaServiceNotFoundError(EmpresaError):
-    status_code = 404
-    code = "EMPRESA_SERVICE_NOT_FOUND"
-    default_message = "Servicio no encontrado"
-
-class EmpresaServiceDuplicatedError(EmpresaError):
-    status_code = 409
-    code = "EMPRESA_SERVICE_DUPLICATED"
-    default_message = "No puede haber dos servicios con el mismo nombre y profesional (o sin profesional) para la misma empresa"
+    default_message = "El usuario ya es miembro de la empresa"
 
 class EmpresaPropietarioOutError(EmpresaError):
     status_code = 409
     code = "EMPRESA_PROPIETARIO_OUT"
     default_message = "La empresa no puede quedar sin propietarios"
 
+class EmpresaProfesionalConTurnosConfimadosOutError(EmpresaError):
+    status_code = 409
+    code = "EMPRESA_PROFESIONAL_CON_TURNOS_CONFIRMADOS_OUT"
+    default_message = "No se puede dejar una empresa que tiene turnos confirmados con vos como profesional"
+
 class EmpresaInvalidSelfRemovalError(EmpresaError):
     code = "EMPRESA_INVALID_SELF_REMOVAL"
     default_message = "No se puede abandonar como miembro a una empresa desde este flujo"
+
+class EmpresaMiembroDeleteConTurnosConfirmadosError(EmpresaError):
+    status_code = 409
+    code = "EMPRESA_MIEMBRO_DELETE_CON_TURNOS_CONFIRMADOS"
+    default_message = "Los miembros de una empresa no pueden ser eliminados si poseen aún turnos confirmados como profesional"
 
 class EmpresaPermissionDeniedError(EmpresaError):
     status_code = 403
     code = "EMPRESA_PERMISSION_DENIED"
     default_message = "Permiso denegado"
 
-class EmpresaUpdateByEmpleadoError(EmpresaPermissionDeniedError):
-    code = "EMPRESA_UPDATE_BY_EMPLEADO"
+class EmpresaAccessGlobalResourcesForbiddenError(EmpresaPermissionDeniedError):
+    code = "EMPRESA_ACCESS_GLOBAL_RESOURCES_FORBIDDEN"
+    default_message = "No tenés acceso a los recursos globales de esta empresa"
+
+class EmpresaAccessResourcesForbiddenError(EmpresaPermissionDeniedError):
+    code = "EMPRESA_ACCESS_RESOURCES_FORBIDDEN"
+    default_message = "No tenés acceso a los recursos de esta empresa"
+
+class EmpresaUpdatedByEmpleadoError(EmpresaPermissionDeniedError):
+    code = "EMPRESA_UPDATED_BY_EMPLEADO"
     default_message = "Los empleados no pueden modificar datos de la empresa"
 
-class EmpresaServiceViewByEmpleadoError(EmpresaPermissionDeniedError):
-    code = "EMPRESA_SERVICE_VIEW_BY_EMPLEADO"
+class EmpresaServiceViewedByEmpleadoError(EmpresaPermissionDeniedError):
+    code = "EMPRESA_SERVICE_VIEWED_BY_EMPLEADO"
     default_message = "Los empleados no pueden visualizar los servicios"
 
-class EmpresaServiceCreateByEmpleadoError(EmpresaPermissionDeniedError):
-    code = "EMPRESA_SERVICE_CREATE_BY_EMPLEADO"
+class EmpresaServiceCreatedByEmpleadoError(EmpresaPermissionDeniedError):
+    code = "EMPRESA_SERVICE_CREATED_BY_EMPLEADO"
     default_message = "Los empleados no pueden crear servicios"
 
-class EmpresaServiceUpdateByEmpleadoError(EmpresaPermissionDeniedError):
-    code = "EMPRESA_SERVICE_UPDATE_BY_EMPLEADO"
+class EmpresaServiceUpdatedByEmpleadoError(EmpresaPermissionDeniedError):
+    code = "EMPRESA_SERVICE_UPDATED_BY_EMPLEADO"
     default_message = "Los empleados no pueden modificar servicios"
 
-class EmpresaServiceDeleteByEmpleadoError(EmpresaPermissionDeniedError):
-    code = "EMPRESA_SERVICE_DELETE_BY_EMPLEADO"
+class EmpresaServiceDeletedByEmpleadoError(EmpresaPermissionDeniedError):
+    code = "EMPRESA_SERVICE_DELETED_BY_EMPLEADO"
     default_message = "Los empleados no pueden eliminar servicios"
 
-class EmpresaMiembrosViewByEmpleadoError(EmpresaPermissionDeniedError):
-    code = "EMPRESA_MIEMBROS_VIEW_BY_EMPLEADO"
+class EmpresaMiembrosViewedByEmpleadoError(EmpresaPermissionDeniedError):
+    code = "EMPRESA_MIEMBROS_VIEWED_BY_EMPLEADO"
     default_message = "Los empleados no pueden visualizar a los miembros de la empresa"
 
 class EmpresaRolUpdateError(EmpresaPermissionDeniedError):
     code = "EMPRESA_ROL_UPDATE"
-    default_message = "Los empleados o gerentes no pueden modificar roles"
+    default_message = "Los roles de los miembros de una empresa solamente pueden ser modificados por miembros de rango superior"
 
-class EmpresaRolPropietarioUpdateError(EmpresaPermissionDeniedError):
-    code = "EMPRESA_ROL_PROPIETARIO_UPDATE"
-    default_message = "El rol de un propietario no puede ser modificado por otros miembros de la empresa"
+class EmpresaPersonalRolPropietarioUpdateError(EmpresaPermissionDeniedError):
+    code = "EMPRESA_PERSONAL_ROL_PROPIETARIO_UPDATE"
+    default_message = "Un propietario solo puede degradarse a gerente de empresa"
 
-class EmpresaRolAsignedByGerenteError(EmpresaPermissionDeniedError):
-    code = "EMPRESA_ROL_ASIGNED_BY_GERENTE"
-    default_message = "Los gerentes solamente pueden asignar el rol de empleado"
+class EmpresaRolNotAssignedByPropietarioError(EmpresaPermissionDeniedError):
+    code = "EMPRESA_ROL_NOT_ASSIGNED_BY_PROPIETARIO"
+    default_message = "Solamente los propietarios pueden asignar roles globales de empresa"
 
-class EmpresaRolAsignedByEmpleadoError(EmpresaPermissionDeniedError):
-    code = "EMPRESA_ROL_ASIGNED_BY_EMPLEADO"
+class EmpresaMiembroDeleteError(EmpresaPermissionDeniedError):
+    code = "EMPRESA_MIEMBRO_DELETE"
+    default_message = "Los miembros de una empresa solamente pueden ser eliminados por miembros de rango superior"
+
+# ------------------ Domain Sucursal Errores ------------------ #
+
+class SucursalError(DomainError):
+    status_code = 400
+    code = "SUCURSAL_ERROR"
+    default_message = "Error de sucursal"
+
+class SucursalNotFoundError(SucursalError):
+    status_code = 404
+    code = "SUCURSAL_NOT_FOUND"
+    default_message = "Sucursal no encontrada"
+
+class SucursalAlreadyExistsWithNameError(SucursalError):
+    status_code = 409
+    code = "SUCURSAL_ALREADY_EXISTS_WITH_NAME"
+    default_message = "Ya existe una sucursal con este nombre en esta empresa"
+
+class SucursalAlreadyExistsWithoutNameError(SucursalError):
+    status_code = 409
+    code = "SUCURSAL_ALREADY_EXISTS_WITHOUT_NAME"
+    default_message = "Ya existe una sucursal sin nombre en esta empresa"
+
+class SucursalReservaPublicaInhabilitadaError(SucursalError):
+    status_code = 409
+    code = "SUCURSAL_RESERVA_PUBLICA_INHABILITADA"
+    default_message = "{nombre} no permite reserva de turnos por parte de los usuarios"
+
+class SucursalClienteBlockedError(SucursalError):
+    status_code = 403
+    code = "SUCURSAL_CLIENTE_BLOCKED"
+    default_message = "Este cliente se encuentra bloqueado"
+
+class SucursalDeactivatedError(SucursalError):
+    status_code = 404
+    code = "SUCURSAL_DEACTIVATED"
+    default_message = "Sucursal fuera de servicio"
+
+class SucursalMiembroNotFoundError(SucursalError):
+    status_code = 404
+    code = "SUCURSAL_MIEMBRO_NOT_FOUND"
+    default_message = "Usuario no pertenece a la sucursal"
+
+class SucursalMiembroAlreadyExistsError(SucursalError):
+    status_code = 409
+    code = "SUCURSAL_MIEMBRO_ALREADY_EXISTS"
+    default_message = "El usuario ya es miembro de la sucursal"
+
+class SucursalServiceNotFoundError(SucursalError):
+    status_code = 404
+    code = "SUCURSAL_SERVICE_NOT_FOUND"
+    default_message = "Servicio no encontrado"
+
+class SucursalServiceDuplicatedError(SucursalError):
+    status_code = 409
+    code = "SUCURSAL_SERVICE_DUPLICATED"
+    default_message = "No puede haber dos servicios con el mismo nombre y profesional (o sin profesional) para la misma sucursal de empresa"
+
+class SucursalServiceDisponibilidadSuperpuestaError(SucursalError):
+    status_code = 409
+    code = "SUCURSAL_SERVICE_DISPONIBILIDAD_SUPERPUESTA"
+    default_message = "Las disponibilidades de un mismo servicio no pueden superponerse en los horarios"
+
+class SucursalServiceUpdateDisponibilidadWithTurnosExistentesError(SucursalError):
+    status_code = 409
+    code = "SUCURSAL_SERVICE_UPDATE_DISPONIBILIDAD_WITH_TURNOS_EXISTENTES"
+    default_message = (
+        "La disponibilidad del día {dia} que cubre los turnos de las {hora} hs "
+        "no puede pasar a tener un máximo de {cant_max} turnos posibles en el mismo horario "
+        "debido a que en este momento posee {cant_actual} turnos confirmados para esta misma hora"
+    )
+
+class SucursalServiceDeleteDisponibilidadWithTurnosExistentesError(SucursalError):
+    status_code = 409
+    code = "SUCURSAL_SERVICE_DELETE_DISPONIBILIDAD_WITH_TURNOS_EXISTENTES"
+    default_message = (
+        "La disponibilidad del día {dia} que cubre los turnos de las {hora} hs "
+        "no puede eliminarse debido a que en este momento posee {cant_actual} turnos confirmados para esta misma hora"
+    )
+
+class SucursalDeactivateConTurnosConfirmadosError(SucursalError):
+    status_code = 409
+    code = "SUCURSAL_DEACTIVATE_CON_TURNOS_CONFIRMADOS"
+    default_message = "No se puede desactivar una sucursal que posee turnos confirmados"
+
+class SucursalServiceConTurnosConfirmadosError(SucursalError):
+    status_code = 409
+    code = "SUCURSAL_SERVICE_CON_TURNOS_CONFIRMADOS"
+    default_message = "No se puede eliminar un servicio que posee turnos confirmados"
+
+class SucursalProfesionalConTurnosConfirmadosOutError(SucursalError):
+    status_code = 409
+    code = "SUCURSAL_PROFESIONAL_CON_TURNOS_CONFIRMADOS_OUT"
+    default_message = "No se puede dejar una sucursal que tiene turnos confirmados con vos como profesional"
+
+class SucursalMiembroDeleteConTurnosConfirmadosError(SucursalError):
+    status_code = 409
+    code = "SUCURSAL_MIEMBRO_DELETE_CON_TURNOS_CONFIRMADOS"
+    default_message = "Los miembros de una sucursal no pueden ser eliminados si poseen aún turnos confirmados como profesional"
+
+class SucursalMiembroAddError(SucursalError):
+    code = "SUCURSAL_MIEMBRO_ADD"
+    default_message = "No se puede agregar a un miembro a una sucursal desde este flujo"
+
+class SucursalInvalidSelfRemovalError(SucursalError):
+    code = "SUCURSAL_INVALID_SELF_REMOVAL"
+    default_message = "No se puede abandonar como miembro a una sucursal desde este flujo"
+
+class SucursalAlreadyExistsInFavoritosError(SucursalError):
+    status_code = 409
+    code = "SUCURSAL_ALREADY_EXISTS_IN_FAVORITOS"
+    default_message = "La sucursal ya se encuentra en favoritos"
+
+class SucursalDoesNotExistInFavoritosError(SucursalError):
+    status_code = 404
+    code = "SUCURSAL_DOES_NOT_EXIST_IN_FAVORITOS"
+    default_message = "La sucursal no se encuentra en favoritos"
+
+class SucursalPermissionDeniedError(SucursalError):
+    status_code = 403
+    code = "SUCURSAL_PERMISSION_DENIED"
+    default_message = "Permiso denegado"
+
+class SucursalCreatedByGerenteEmpresaError(SucursalPermissionDeniedError):
+    code = "SUCURSAL_CREATED_BY_GERENTE_EMPRESA"
+    default_message = "Los gerentes de empresa no pueden crear sucursales de empresas"
+
+class SucursalAccessResourcesForbiddenError(SucursalPermissionDeniedError):
+    code = "SUCURSAL_ACCESS_RESOURCES_FORBIDDEN"
+    default_message = "No tenés acceso a los recursos de esta sucursal"
+
+class SucursalDeactivateForbiddenError(SucursalPermissionDeniedError):
+    code = "SUCURSAL_DEACTIVATE_FORBIDDEN"
+    default_message = "Solamente el propietario de la sucursal puede desactivarla"
+
+class SucursalActivateForbiddenError(SucursalPermissionDeniedError):
+    code = "SUCURSAL_ACTIVATE_FORBIDDEN"
+    default_message = "Solamente el propietario de la sucursal puede reactivarla"
+
+class SucursalRolAssignedByEmpleadoError(SucursalPermissionDeniedError):
+    code = "SUCURSAL_ROL_ASSIGNED_BY_EMPLEADO"
     default_message = "Los empleados no pueden asignar roles"
 
-class EmpresaMiembroPropietarioDeleteError(EmpresaPermissionDeniedError):
-    code = "EMPRESA_MIEMBRO_PROPIETARIO_DELETE"
-    default_message = "Los propietarios no pueden ser eliminados por otros miembros de la empresa"
+class SucursalRolAssignedByGerenteError(SucursalPermissionDeniedError):
+    code = "SUCURSAL_ROL_ASSIGNED_BY_GERENTE"
+    default_message = "Los gerentes de sucursales no pueden asignar roles de gerentes"
 
-class EmpresaMiembroDeleteByGerenteError(EmpresaPermissionDeniedError):
-    code = "EMPRESA_MIEMBRO_DELETE_BY_GERENTE"
-    default_message = "Los gerentes no pueden eliminar propietarios u otros gerentes"
+class SucursalClienteUnlockedByEmpleadoError(SucursalPermissionDeniedError):
+    code = "SUCURSAL_CLIENTE_UNLOCKED_BY_EMPLEADO"
+    default_message = "Los empleados no pueden desbloquear clientes"
 
-class EmpresaMiembroDeleteByEmpleadoError(EmpresaPermissionDeniedError):
-    code = "EMPRESA_MIEMBRO_DELETE_BY_EMPLEADO"
-    default_message = "Los empleados no pueden eliminar miembros"
+# ------------------ Domain Cliente Errores ------------------ #
 
-class EmpresaUnlockUserByEmpleadoError(EmpresaPermissionDeniedError):
-    code = "EMPRESA_UNLOCK_USER_BY_EMPLEADO"
-    default_message = "Los empleados no pueden desbloquear usuarios"
+class ClienteError(SucursalError):
+    status_code = 400
+    code = "CLIENTE_ERROR"
+    default_message = "Error de cliente"
+
+class ClienteNotFoundError(ClienteError):
+    status_code = 404
+    code = "CLIENTE_NOT_FOUND"
+    default_message = "Cliente no encontrado"
+
+class ClienteAlreadyExistsError(ClienteError):
+    status_code = 409
+    code = "CLIENTE_ALREADY_EXISTS"
+    default_message = "Ya existe un cliente registrado con ese correo electrónico en esta sucursal"
+
+class ClienteDeactivateConTurnosConfirmadosError(ClienteError):
+    status_code = 409
+    code = "CLIENTE_DEACTIVATE_CON_TURNOS_CONFIRMADOS"
+    default_message = "No se puede desactivar a un cliente que posee turnos confirmados"
 
 # ------------------ Domain Rol Errores ------------------ #
 
@@ -191,7 +359,7 @@ class TurnoReservaAnticipacionInvalidError(TurnoReservaError):
 class TurnoReservaFueraDeRangoError(TurnoReservaError):
     status_code = 422
     code = "TURNO_RESERVA_FUERA_DE_RANGO"
-    default_message = "El turno solicitado para este servicio excede el límite máximo de {dias_max} días permitidos por la empresa"
+    default_message = "El turno solicitado para este servicio excede el límite máximo de {dias_max} días permitidos por esta empresa"
 
 class TurnoReservaDisponibilidadNoConfiguradaError(TurnoReservaError):
     status_code = 422
@@ -233,10 +401,10 @@ class TurnoUpdateStateImmutableError(TurnoUpdateError):
     code = "TURNO_UPDATE_STATE_IMMUTABLE"
     default_message = "El estado no puede volver a modificarse"
 
-class TurnoCancelByMiembroForbiddenError(TurnoUpdateError):
+class TurnoCanceledByMiembroForbiddenError(TurnoUpdateError):
     status_code = 403
-    code = "TURNO_CANCEL_BY_MIEMBRO_FORBIDDEN"
-    default_message = "Solo el profesional del servicio o un empleado de rango superior puede cancelar este turno"
+    code = "TURNO_CANCELED_BY_MIEMBRO_FORBIDDEN"
+    default_message = "Solo el profesional del servicio o un miembro de la empresa de rango superior puede cancelar este turno"
 
 class TurnoDeleteError(TurnoError):
     status_code = 400
@@ -246,12 +414,7 @@ class TurnoDeleteError(TurnoError):
 class TurnoDeleteStateConflictError(TurnoDeleteError):
     status_code = 409
     code = "TURNO_DELETE_STATE_CONFLICT"
-    default_message = "Se debe cambiar el estado del turno antes de moverlo al historial"
-
-class TurnoHistorialNotFoundError(TurnoDeleteError):
-    status_code = 404
-    code = "TURNO_HISTORIAL_NOT_FOUND"
-    default_message = "Turno no encontrado en el historial"
+    default_message = "Se debe cambiar el estado del turno antes de eliminarlo"
 
 # ------------------ Domain Password Errores ------------------ #
 
@@ -313,11 +476,6 @@ class InvitationError(DomainError):
 class InvitationTokenInvalidExpiredError(InvitationError):
     code = "INVITATION_TOKEN_INVALID_EXPIRED"
     default_message = "Token inválido o expirado"
-
-class InvitationUserBlockedError(InvitationError):
-    status_code = 403
-    code = "INVITATION_USER_BLOCKED"
-    default_message = "El usuario debe sacarse de la lista de bloqueados primero, antes de poder convertirlo en miembro de la empresa"
 
 # ------------------ Domain Email Errores ------------------ #
 

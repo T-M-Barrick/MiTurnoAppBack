@@ -21,9 +21,3 @@ PYDANTIC_ERROR_MAP = {
     # formatos
     "email_parsing": "INVALID_EMAIL",
 }
-
-VALIDATORS_CODES_ERROR = [
-    "HORA_MULTIPLO_5",
-    "INVALID_TIME_RANGE",
-    "INVALID_TIME_RANGE_WITH_INTERVALO",
-]

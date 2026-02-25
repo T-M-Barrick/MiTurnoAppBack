@@ -1,30 +1,59 @@
-from datetime import datetime, date, time
+from datetime import datetime, timedelta, date, time
 from enum import Enum
+from typing import Self
 
-from pydantic import BaseModel, EmailStr, Field, conint, constr, field_validator, model_validator, root_validator
+from pydantic import BaseModel, EmailStr, SecretStr, Field, conint, constr, field_validator, model_validator
 
 from schemas.common import Telefono
+from core.security import validate_password
+
+'''
+Cuando Pydantic ve que un campo es SecretStr, lo envuelve en una "caja de seguridad".
+Si se intenta imprimirlo o guardarlo directamente, se verá **********.
+Para sacar el string real y pasárselo a una función, se abre la caja con el método get_secret_value().
+'''
 
 class UserLogin(BaseModel):
-    email: EmailStr = Field(max_length=255)
-    password: constr(min_length=8, max_length=128, strip_whitespace=True)
+    email: EmailStr = Field(..., max_length=255)
+    password: SecretStr = Field(..., min_length=8, max_length=128)
+
+    @field_validator("password", mode="after")
+    @classmethod
+    def validar_password(cls, value: SecretStr) -> SecretStr:
+
+        validate_password(value.get_secret_value())
+        return value
     
     model_config = {"from_attributes": True}
 
 class ChangePassword(BaseModel):
-    old_password: constr(min_length=8, max_length=128, strip_whitespace=True)
-    new_password: constr(min_length=8, max_length=128, strip_whitespace=True)
+    old_password: SecretStr = Field(..., min_length=8, max_length=128)
+    new_password: SecretStr = Field(..., min_length=8, max_length=128)
+
+    @field_validator("old_password", "new_password", mode="after")
+    @classmethod
+    def validar_password(cls, value: SecretStr) -> SecretStr:
+
+        validate_password(value.get_secret_value())
+        return value
 
     model_config = {"from_attributes": True}
 
 class ForgotPasswordEmail(BaseModel):
-    email: EmailStr = Field(max_length=255)
+    email: EmailStr = Field(..., max_length=255)
 
     model_config = {"from_attributes": True}
 
 class ResetPasswordEmail(BaseModel):
-    token: constr(min_length=20, max_length=1000)
-    new_password: constr(min_length=8, max_length=128, strip_whitespace=True)
+    token: constr(min_length=30, max_length=100)
+    new_password: SecretStr = Field(..., min_length=8, max_length=128)
+
+    @field_validator("new_password", mode="after")
+    @classmethod
+    def validar_password(cls, value: SecretStr) -> SecretStr:
+
+        validate_password(value.get_secret_value())
+        return value
 
     model_config = {"from_attributes": True}
 
@@ -33,7 +62,7 @@ class FormaEnvio(str, Enum):
     wpp = "wpp"
 
 class ForgotPasswordMobile(BaseModel):
-    email: EmailStr = Field(max_length=255)
+    email: EmailStr = Field(..., max_length=255)
     telefono: Telefono
     forma: FormaEnvio # sms o wpp
 
@@ -42,6 +71,13 @@ class ForgotPasswordMobile(BaseModel):
 class ResetPasswordMobile(BaseModel):
     telefono: Telefono
     otp: constr(regex=r"^\d{6}$") # numérico de 6 dígitos
-    new_password: constr(min_length=8, max_length=128, strip_whitespace=True)
+    new_password: SecretStr = Field(..., min_length=8, max_length=128)
+
+    @field_validator("new_password", mode="after")
+    @classmethod
+    def validar_password(cls, value: SecretStr) -> SecretStr:
+
+        validate_password(value.get_secret_value())
+        return value
 
     model_config = {"from_attributes": True}

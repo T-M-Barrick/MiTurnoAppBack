@@ -1,13 +1,13 @@
-from typing import Optional
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, Response, Query, UploadFile, File
+from fastapi import APIRouter, Depends, Response, UploadFile, File, Path, Query, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload, selectinload # Session de SQLAlchemy, representa una sesión de base de datos.
 
 from core import models, constantes, exceptions, config, autenticacion, timezone
 from core.database import get_db
 from crud import common as crud_common
 from crud import empresa as crud_empresa
+from services import auth as services_auth
 from schemas import common as schemas_common
 from schemas import empresa as schemas_empresa
 from mappers import empresa as mappers_empresa
@@ -17,51 +17,46 @@ router = APIRouter(prefix="/empresas", tags=["Empresas"])
 # prefix="/empresas" agrega un prefijo automático a todos los endpoints que se declaren dentro del router (este módulo).
 # tags=["Empresas"] sirve para organizar la documentación automática de Swagger (/docs).
 
-# Crear empresa
-# {"message": "Empresa creada con éxito"}
+# {"message": "Para validar el registro de su empresa, le hemos enviamos un correo a la casilla del email de la empresa con un enlace para su verificación"}
 @router.post("/", status_code=201) # @router.post("/empresas/") indica que esta función responde a POST en /empresas/.
-def create_empresa(empresa_nueva: schemas_empresa.EmpresaCreate, response: Response, 
-    current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
+def create_empresa(
+    empresa_nueva: schemas_empresa.EmpresaCreate,
+    background_tasks: BackgroundTasks, # clave para el tiempo constante
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
 
-    try:
-        empresa = crud_empresa.create_empresa(db, empresa_nueva) # Devuelve un objeto de clase Empresa de SQLAlchemy
+    empresa = crud_empresa.create(db, current_user.id, empresa_nueva) # Devuelve un objeto de clase Empresa de SQLAlchemy
 
-        if empresa and empresa.email_verificado:
-            return {}
+    limite_no_sobrepasado = crud_common.check_email_rate_limit(db, empresa.email, "REGISTER")
 
-        crud_empresa.asignar_rol_de_propietario(db=db, usuario_id=current_user.id, empresa_id=empresa.id)
+    if limite_no_sobrepasado:
 
-        # Enviar el mail
-        limite_no_sobrepasado = crud_common.check_email_rate_limit(db, empresa.email, "REGISTER")
+        token = autenticacion.create_email_token(
+            data={"sub": empresa.id},
+            expires_delta=timedelta(hours=config.VERIFY_EMAIL_TOKEN_EXPIRE_HOURS)
+        )
 
-        if limite_no_sobrepasado:
-
-            token = autenticacion.create_email_token(
-                data={"sub": empresa.id},
-                expires_delta=timedelta(hours=config.VERIFY_EMAIL_TOKEN_EXPIRE_HOURS)
-            )
-
-            try:
-                mensajes.send_verification_email(usuario.email, token)
-            except exceptions.EmailSendFailedError:
-                pass # no revelamos si el email se mandó o no
-
-        db.commit()
-
-    except Exception:
-        db.rollback()
-        raise
+        # DE FONDO: Para que la respuesta sea instantánea
+        background_tasks.add_task(services_auth.background_send_verification_email, empresa.email, token)
     
     return {}
 
 # {"message": "Correo verificado con éxito"}
 @router.get("/verificacion/email", status_code=204)
-def verificacion_email_empresa(token: str, db: Session = Depends(get_db)):
+def verificacion_email_empresa(
+    token: str = Query(..., min_length=20, max_length=1000),
+    db: Session = Depends(get_db),
+):
 
     crud_common.verificacion_email(db, token, usuario=False)
 
-@router.get("/{empresa_id}", response_model=schemas_empresa.EmpresaHomeOut, status_code=200)
-def acceder_empresa(empresa_id: int, current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
+@router.get("/{empresa_id}/panel", response_model=schemas_empresa.EmpresaHomeOut, status_code=200)
+def acceder_empresa(
+    empresa_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
 
     empresa, current_user_rol = crud_empresa.acceder(db, empresa_id, current_user.id)
     
@@ -69,23 +64,41 @@ def acceder_empresa(empresa_id: int, current_user: models.Usuario = Depends(aute
 
     return emp
 
-# Actualizar empresa (datos simples, teléfonos y dirección)
-@router.patch("/{empresa_id}", response_model=schemas_empresa.EmpresaHomeOut, status_code=200)
-def update_empresa(empresa_id: int, empresa_update: schemas_empresa.EmpresaUpdateIn, 
-    current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
+@router.get("/{empresa_id}/perfil", response_model=schemas_empresa.EmpresaPerfilOut, status_code=200)
+def acceder_perfil_empresa(
+    empresa_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
 
-    empresa, current_user_rol = crud_empresa.update(db, empresa_id, current_user.id, empresa_update)
-
-    emp = mappers_empresa.empresa_home_out(empresa, current_user_rol)
+    empresa, current_user_rol = crud_empresa.acceder(db, empresa_id, current_user.id)
+    
+    emp = mappers_empresa.empresa_perfil_out(empresa, current_user_rol)
 
     return emp
 
-@router.patch("/empresas/{empresa_id}/logo", response_model=schemas_empresa.EmpresaLogoOut, status_code=200)
-def update_empresa_logo(
-    empresa_id: int,
-    file: UploadFile | None = File(None),
+# Actualizar empresa (datos simples)
+@router.patch("/{empresa_id}", response_model=schemas_empresa.EmpresaHomeOut, status_code=200)
+def update_empresa(
+    empresa_update: schemas_empresa.EmpresaUpdateIn,
+    empresa_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db)):
+    db: Session = Depends(get_db),
+):
+
+    empresa, current_user_rol = crud_empresa.update(db, empresa_id, current_user.id, empresa_update)
+
+    emp = mappers_empresa.empresa_perfil_out(empresa, current_user_rol)
+
+    return emp
+
+@router.patch("/{empresa_id}/logo", response_model=schemas_empresa.EmpresaLogoOut, status_code=200)
+def update_empresa_logo(
+    empresa_id: int = Path(..., ge=1),
+    file: UploadFile | None = File(default=None),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
 
     logo_url = crud.update_logo(db, empresa_id, file)
 
@@ -93,189 +106,83 @@ def update_empresa_logo(
 
     return logo_out
 
-@router.get("/{empresa_id}/turnos", response_model=list[schemas_empresa.TurnoEmpresaOut], status_code=200)
-def get_turnos_empresa(
-    empresa_id: int,
+@router.get("/{empresa_id}/sucursales/desactivadas", response_model=list[schemas_empresa.SucursalPerfilOut], status_code=200)
+def get_sucursales_desactivadas(
+    empresa_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db)):
+    db: Session = Depends(get_db),
+):
 
-    turnos = crud_empresa.get_turnos(db, empresa_id, current_user.id)
+    sucursales = crud_empresa.get_sucursales_desactivadas(db, empresa_id, current_user.id)
+
+    sucursales_out = [mappers_empresa.sucursal_perfil_out(sucursal) for sucursal in sucursales]
     
-    turnos_out = [mappers_empresa.turno_empresa_out(turno) for turno in turnos]
+    return sucursales_out
 
-    return turnos_out
-
-# Modifica el estado de un turno de la tabla Turno y devuelve el turno con el estado modificado
-@router.patch("/{empresa_id}/turnos", response_model=schemas_empresa.TurnoEmpresaOut, status_code=200)
-def update_turno_empresa(
-    empresa_id: int,
-    turno_update: schemas_common.TurnoUpdateIn,
-    current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db)):
-
-    turno_modificado = crud_empresa.update_turno(db, empresa_id, current_user, turno_update)
-    
-    turno_out = mappers_empresa.turno_empresa_out(turno_modificado)
-
-    return turno_out
-
-# Pasa un turno a la tabla Historial en caso de que lo haya pedido el usuario o la empresa y lo elimina en caso de que lo hayan ya pedido los 2
-@router.delete("/{empresa_id}/turnos/{turno_id}", status_code=204)
-def delete_turno_empresa(empresa_id: int, turno_id: int, 
-    current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
-
-    crud_empresa.delete_turno(db, empresa_id, current_user.id, turno_id, constantes.LISTA_PARCIAL_DE_ESTADOS)
-
-@router.get("/{empresa_id}/turnos/estados", response_model=list[schemas_common.TurnoEstadoOut], status_code=200)
-def get_estados_turnos_empresa(empresa_id: int, 
-    current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
-
-    turnos = crud_empresa.get_estados_turnos(db, empresa_id, current_user.id)
-
-    turnos_estados = [mappers_empresa.turno_estado_out(turno) for turno in turnos]
-
-    return turnos_estados
-
-# Devuelve todos los turnos que la empresa ya completó (tabla Historial) (el primero devuelto será el más reciente)
-@router.get("/{empresa_id}/historial", response_model=schemas_empresa.HistorialEmpresaOut, status_code=200)
-def get_historial_empresa(empresa_id: int, current_user: models.Usuario = Depends(autenticacion.get_current_user), 
-    db: Session = Depends(get_db), before: Optional[datetime] = Query(None)):
-    
-    fecha_hora_ultima = timezone.to_naive_utc(before) if before else datetime.max # si el before fue pasado, se toma, y si no, se toma datetime.max
-
-    historial, ultimo_cursor = crud_empresa.get_historial(
-        db, empresa_id, current_user.id, fecha_hora_ultima=fecha_hora_ultima)
-
-    historial_out = [mappers_empresa.turno_historial_empresa(h) for h in historial]
-    
-    respuesta = schemas_empresa.HistorialEmpresaOut(
-        historial=historial_out, # historial_out es una lista de objetos de clase TurnoHistorialEmpresa de Pydantic
-        ultimo_cursor=timezone.ensure_utc(ultimo_cursor)) # ultimo_cursor volverá si el usuario pide más historial
-    
-    return respuesta
-
-@router.get("/{empresa_id}/servicios", response_model=list[schemas_empresa.ServicioEmpresaOut], status_code=200)
-def get_servicios_empresa(
-    empresa_id: int,
-    current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db)):
-
-    servicios = crud_empresa.get_servicios(db, empresa_id, current_user.id)
-    
-    servicios_out = [mappers_empresa.servicio_empresa_out(servicio) for servicio in servicios]
-
-    return servicios_out
-
-@router.post("/{empresa_id}/servicios", response_model=schemas_empresa.ServicioEmpresaOut, status_code=201)
-def create_servicio_empresa(
-    empresa_id: int,
-    servicio_nuevo: schemas_empresa.ServicioCreate,
-    current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db)):
-
-    servicio = crud_empresa.create_servicio(db, empresa_id, current_user.id, servicio_nuevo)
-    
-    servicio_out = mappers_empresa.servicio_empresa_out(servicio)
-
-    return servicio_out
-
-@router.patch("/{empresa_id}/servicios", response_model=schemas_empresa.ServicioEmpresaOut, status_code=200)
-def update_servicio_empresa(
-    empresa_id: int,
-    servicio_update: schemas_empresa.ServicioUpdateIn,
-    current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db)):
-
-    servicio = crud_empresa.update_servicio(db, empresa_id, current_user.id, servicio_update)
-    
-    servicio_out = mappers_empresa.servicio_empresa_out(servicio)
-
-    return servicio_out
-
-# if len(servicios_delete.servicios) == 1:
-#     return {"message": "Servicio eliminado con éxito"}
-# else:
-#     return {"message": "Servicios eliminados con éxito"}
-@router.delete("/{empresa_id}/servicios", status_code=204)
-def delete_servicios_empresa(
-    empresa_id: int,
-    servicios_delete: schemas_empresa.ServiciosDeleteIn,
-    current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db)):
-
-    crud_empresa.delete_servicios(db, empresa_id, current_user.id, servicios_delete.servicios)
-
-@router.get("/{empresa_id}/miembros", response_model=list[schemas_empresa.MiembroOut], status_code=200)
+@router.get("/{empresa_id}/miembros", response_model=schemas_empresa.MiembrosEmpresaOut, status_code=200)
 def get_miembros_empresa(
-    empresa_id: int,
+    empresa_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db)):
+    db: Session = Depends(get_db),
+):
 
-    miembros = crud_empresa.get_miembros(db, empresa_id, current_user.id)
+    miembros_empresa, miembros_sucursales = crud_empresa.get_miembros(db, empresa_id, current_user.id)
     
-    miembros_out = [mappers_empresa.miembro_out(miembro) for miembro in miembros]
+    miembros_out = mappers_empresa.miembros_empresa_out(miembros_empresa, miembros_sucursales)
 
     return miembros_out
 
-@router.patch("/{empresa_id}/miembros/me", response_model=schemas_empresa.RolOut, status_code=200)
-def update_personal_rol(empresa_id: int, data: schemas_empresa.UpdateRolIn, 
-    current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
+@router.patch("/{empresa_id}/miembros/me", response_model=schemas_empresa.MiembroEmpresaOut, status_code=200)
+def update_personal_rol(
+    data: schemas_common.UpdateRolIn,
+    empresa_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
 
-    rol_nombre = crud_empresa.update_rol(db, empresa_id, current_user.id, current_user.id, data.nuevo_rol)
+    miembro = crud_empresa.update_rol(db, empresa_id, current_user.id, current_user.id, data.nuevo_rol, data.sucursal_id)
 
-    rol_out = mappers_empresa.rol_out(rol_nombre)
+    miembro_out = mappers_empresa.miembro_empresa_out(miembro)
 
-    return rol_out
+    return miembro_out
 
 @router.delete("/{empresa_id}/miembros/me", status_code=204)
-def empresa_out(empresa_id: int, current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
+def leave_empresa(
+    empresa_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
 
-    crud_empresa.empresa_out(db, empresa_id, current_user.id)
+    crud_empresa.leave_empresa(db, empresa_id, current_user.id)
 
-# return "message": f"Rol de {miembro_empresa.usuario.apellido}, {miembro_empresa.usuario.nombre} modificado a {nuevo_rol}"
+# "message": f"Rol de {apellido}, {nombre} modificado a {nuevo_rol}"
 @router.patch("/{empresa_id}/miembros/{target_id}",
-    response_model=schemas_empresa.RolOut, status_code=200) # target_id es el id del miembro como usuario en la tabla usuario
-def update_rol(empresa_id: int, target_id: int, data: schemas_empresa.UpdateRolIn, 
-    current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
+    response_model=schemas_empresa.MiembrosEmpresaOut,
+    status_code=200) # target_id es el id del miembro como usuario en la tabla usuario
+def update_rol(
+    data: schemas_common.UpdateRolIn,
+    empresa_id: int = Path(..., ge=1),
+    target_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
 
-    rol_nombre = crud_empresa.update_rol(db, empresa_id, current_user.id, target_id, data.nuevo_rol)
+    miembro = crud_empresa.update_rol(db, empresa_id, current_user.id, target_id, data.nuevo_rol, data.sucursal_id)
 
-    rol_out = mappers_empresa.rol_out(rol_nombre)
+    if isinstance(miembro, models.Miembro_Empresa):
+        miembro_out = mappers_empresa.miembros_empresa_out([miembro], [])
+    if isinstance(miembro, list[models.Miembro_Sucursal]):
+        miembro_out = mappers_empresa.miembros_empresa_out([], miembro)
 
-    return rol_out
+    return miembro_out
 
 # {"message": f"{apellido}, {nombre} fue eliminado correctamente de esta empresa"}
 @router.delete("/{empresa_id}/miembros/{target_id}", status_code=204) # target_id es el id del miembro como usuario en la tabla usuario
-def delete_miembro(empresa_id: int, target_id: int,
-    current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
+def delete_miembro(
+    empresa_id: int = Path(..., ge=1),
+    target_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
 
     crud_empresa.delete_miembro(db, empresa_id, current_user.id, target_id)
-
-@router.get("/{empresa_id}/bloqueos", response_model=list[schemas_empresa.BlockUserOut], status_code=200)
-def get_usuarios_bloqueados(
-    empresa_id: int,
-    current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db)):
-
-    resultados = crud_empresa.get_usuarios_bloqueados(db, empresa_id, current_user.id)
-    
-    bloqueos_out = [mappers_empresa.block_user_out(bloqueo, miembro_rol) for bloqueo, miembro_rol in resultados]
-
-    return bloqueos_out
-
-@router.post("/{empresa_id}/bloqueos",
-    response_model=schemas_empresa.BlockUserOut, status_code=201)
-def block_usuario(empresa_id: int, data: schemas_empresa.BlockUserIn,
-    current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
-
-    bloqueo, miembro_rol = crud_empresa.block_usuario(db, empresa_id, current_user.id, data.email, data.motivo)
-
-    bloqueo_out =  mappers_empresa.block_user_out(bloqueo, miembro_rol)
-
-    return bloqueo_out
-
-@router.delete("/{empresa_id}/bloqueos", status_code=204)
-def unlock_usuario(empresa_id: int, data: schemas_empresa.UnlockUserIn,
-    current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
-
-    crud_empresa.unlock_usuario(db, empresa_id, current_user.id, data.email)

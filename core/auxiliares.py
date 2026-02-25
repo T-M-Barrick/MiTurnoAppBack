@@ -5,7 +5,7 @@ import io
 import requests
 from PIL import Image
 
-from core.constantes import DIAS_NOMBRES, MAX_LOGO_SIZE, Rol
+from core.constantes import DIAS_NOMBRES, MAX_LOGO_SIZE
 from core import exceptions
 
 def mapear_nombre_dia_semana(dia: int):
@@ -13,6 +13,12 @@ def mapear_nombre_dia_semana(dia: int):
     dia_nombre = DIAS_NOMBRES[dia]
 
     return dia_nombre
+
+def nombre_empresa(empresa_nombre: str, sucursal_nombre: str | None):
+    emp_nombre = empresa_nombre
+    if sucursal_nombre:
+        emp_nombre += f' - {sucursal_nombre}'
+    return emp_nombre
 
 def buscar_localidad(provincia: str, municipio: str, localidad: str, url: str):
     """
@@ -96,7 +102,7 @@ def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, ca
 
     return {"lat": lat, "lng": lon, "calle": calle_nominatim}
 
-# las coordenadas1 son las de la casa del usuario y las coordenadas2 son de la empresa que se está analizando
+# las coordenadas1 son las de la casa del usuario y las coordenadas2 son de la sucursal que se está analizando
 def distancia_km(lat1, lng1, lat2, lng2):
     R = 6371 # radio terrestre en km que sirve para la fórmula Haversine
     dlat = math.radians(lat2 - lat1)
@@ -108,8 +114,51 @@ def distancia_km(lat1, lng1, lat2, lng2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     return R * c
 
-def rol_superior(rol1: Rol, rol2: Rol):
-    return rol1.value < rol2.value
+def transformar_rol(rol: str | int, contexto: str = "global") -> int | str:
+    """
+    Traducción bidireccional con numeración dependiente del contexto.
+    """
+
+    MAP = {
+        "empresa": {
+            "propietario": 1,
+            "gerente_empresa": 2,
+        },
+        "sucursal": {
+            "gerente_sucursal": 1,
+            "empleado": 2,
+        },
+        "global": {
+            "propietario": 1,
+            "gerente_empresa": 2,
+            "gerente_sucursal": 3,
+            "empleado": 4,
+        },
+    }
+
+    if contexto not in MAP:
+        raise ValueError("Contexto inválido")
+
+    tabla = MAP[contexto]
+
+    # string -> int
+    if isinstance(rol, str):
+        if rol not in tabla:
+            raise ValueError("String de rol inválido para este contexto")
+        return tabla[rol] # es un int
+
+    # int -> string
+    elif isinstance(rol, int):
+        for nombre, numero in tabla.items():
+            if numero == rol:
+                return nombre # es un string
+        raise ValueError("Número de rol inválido para este contexto")
+
+    else:
+        raise ValueError("Tipo de rol inválido")
+
+def rol_superior(rol1: str, rol2: str) -> bool:
+    return transformar_rol(rol1) < transformar_rol(rol2)
 
 def validar_logo(logo_bytes: bytes):
 

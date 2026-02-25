@@ -1,7 +1,6 @@
-from typing import Optional
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, Response, Query, UploadFile, File
+from fastapi import APIRouter, Depends, Response, UploadFile, File, Path, Query
 from sqlalchemy.orm import Session, joinedload, selectinload # Session de SQLAlchemy, representa una sesión de base de datos.
 
 from core import models, constantes, exceptions, config, autenticacion, timezone
@@ -16,175 +15,288 @@ router = APIRouter(prefix="/sucursales", tags=["Sucursales"])
 
 # {"message": "Sucursal creada con éxito"}
 @router.post("/", status_code=201)
-def create_sucursal(sucursal_nueva: schemas_sucursal.SucursalCreate, response: Response, 
-    current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
+def create_sucursal(
+    nueva_sucursal: schemas_sucursal.SucursalCreate,
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
 
-    try:
-        sucursal = crud_sucursal.create_sucursal(db, sucursal_nueva) # Devuelve un objeto de clase Sucursal de SQLAlchemy
-
-        if empresa and empresa.email_verificado:
-            return {}
-
-        crud_empresa.asignar_rol_de_propietario(db=db, usuario_id=current_user.id, empresa_id=empresa.id)
-
-        # Enviar el mail
-        limite_no_sobrepasado = crud_common.check_email_rate_limit(db, empresa.email, "REGISTER")
-
-        if limite_no_sobrepasado:
-
-            token = autenticacion.create_email_token(
-                data={"sub": empresa.id},
-                expires_delta=timedelta(hours=config.VERIFY_EMAIL_TOKEN_EXPIRE_HOURS)
-            )
-
-            try:
-                mensajes.send_verification_email(usuario.email, token)
-            except exceptions.EmailSendFailedError:
-                pass # no revelamos si el email se mandó o no
-
-        db.commit()
-
-    except Exception:
-        db.rollback()
-        raise
+    sucursal = crud_sucursal.create(db, current_user.id, nueva_sucursal) # Devuelve un objeto de clase Sucursal de SQLAlchemy
     
     return {}
 
-# {"message": "Correo verificado con éxito"}
-@router.get("/verificacion/email", status_code=204)
-def verificacion_email_sucursal(token: str, db: Session = Depends(get_db)):
-
-    crud_common.verificacion_email(db, token, usuario=False)
-
-@router.get("/{sucursal_id}", response_model=schemas_sucursal.SucursalHomeOut, status_code=200)
-def acceder_sucursal(sucursal_id: int, current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
+@router.get("/{sucursal_id}/panel", response_model=schemas_sucursal.SucursalHomeOut, status_code=200)
+def acceder_sucursal(
+    sucursal_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
 
     sucursal, current_user_rol = crud_sucursal.acceder(db, sucursal_id, current_user.id)
     
-    emp = mappers_sucursal.sucursal_home_out(sucursal, current_user_rol)
+    suc = mappers_sucursal.sucursal_home_out(sucursal, current_user_rol)
 
-    return emp
+    return suc
+
+@router.get("/{sucursal_id}/perfil", response_model=schemas_sucursal.SucursalPerfilOut, status_code=200)
+def acceder_perfil_sucursal(
+    sucursal_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    sucursal, current_user_rol = crud_sucursal.acceder(db, sucursal_id, current_user.id)
+    
+    suc = mappers_sucursal.sucursal_perfil_out(sucursal, current_user_rol)
+
+    return suc
 
 # Actualizar sucursal (datos simples, teléfonos y dirección)
-@router.patch("/{sucursal_id}", response_model=schemas_sucursal.SucursalHomeOut, status_code=200)
-def update_sucursal(sucursal_id: int, sucursal_update: schemas_sucursal.SucursalUpdateIn, 
-    current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
+@router.patch("/{sucursal_id}", response_model=schemas_sucursal.SucursalPerfilOut, status_code=200)
+def update_sucursal(
+    sucursal_update: schemas_sucursal.SucursalUpdateIn,
+    sucursal_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
 
     sucursal, current_user_rol = crud_sucursal.update(db, sucursal_id, current_user.id, sucursal_update)
 
-    emp = mappers_sucursal.sucursal_home_out(sucursal, current_user_rol)
+    suc = mappers_sucursal.sucursal_perfil_out(sucursal, current_user_rol)
 
-    return emp
+    return suc
 
-@router.patch("/empresas/{empresa_id}/logo", response_model=schemas_empresa.EmpresaLogoOut, status_code=200)
-def update_empresa_logo(
-    empresa_id: int,
-    file: UploadFile | None = File(None),
+# {"message": "Sucursal desactivada con éxito"}
+@router.patch("/{sucursal_id}/desactivar", status_code=204)
+def deactivate_sucursal(
+    sucursal_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db)):
+    db: Session = Depends(get_db),
+):
 
-    logo_url = crud.update_logo(db, empresa_id, file)
+    crud_sucursal.deactivate(db, sucursal_id, current_user.id)
 
-    logo_out = mappers_empresa.empresa_logo_out(logo_url)
-
-    return logo_out
-
-@router.get("/{empresa_id}/turnos", response_model=list[schemas_empresa.TurnoEmpresaOut], status_code=200)
-def get_turnos_empresa(
-    empresa_id: int,
+# {"message": "Sucursal reactivada con éxito"}
+@router.patch("/{sucursal_id}/reactivar", status_code=204)
+def reactivate_sucursal(
+    sucursal_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db)):
+    db: Session = Depends(get_db),
+):
 
-    turnos = crud_empresa.get_turnos(db, empresa_id, current_user.id)
-    
-    turnos_out = [mappers_empresa.turno_empresa_out(turno) for turno in turnos]
+    crud_sucursal.reactivate(db, sucursal_id, current_user.id)
 
-    return turnos_out
-
-# Modifica el estado de un turno de la tabla Turno y devuelve el turno con el estado modificado
-@router.patch("/{empresa_id}/turnos", response_model=schemas_empresa.TurnoEmpresaOut, status_code=200)
-def update_turno_empresa(
-    empresa_id: int,
-    turno_update: schemas_common.TurnoUpdateIn,
+# Devuelve todos los clientes de la sucursal según filtros (el primero devuelto será el más reciente en id)
+@router.get("/{sucursal_id}/clientes", response_model=schemas_sucursal.ClientesSucursalOut, status_code=200)
+def get_clientes_sucursal(
+    sucursal_id: int = Path(..., ge=1),
+    search: str | None = Query(default=None, min_length=3, max_length=255, alias="busqueda"),
+    activo: bool | None = Query(default=None),
+    id_ultimo: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=50, ge=1, le=100, alias="limite"),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db)):
+    db: Session = Depends(get_db),
+):
 
-    turno_modificado = crud_empresa.update_turno(db, empresa_id, current_user, turno_update)
+    id_ultimo = id_ultimo if id_ultimo else 2**31 - 1 # valor grande si no viene
+
+    clientes, ultimo_cursor_id = crud_sucursal.get_clientes(
+        db, sucursal_id, current_user.id, search=search, activo=activo, id_ultimo=id_ultimo, limit=limit,
+    )
+
+    clientes_out = [mappers_sucursal.cliente_out(c) for c in clientes]
     
-    turno_out = mappers_empresa.turno_empresa_out(turno_modificado)
-
-    return turno_out
-
-# Pasa un turno a la tabla Historial en caso de que lo haya pedido el usuario o la empresa y lo elimina en caso de que lo hayan ya pedido los 2
-@router.delete("/{empresa_id}/turnos/{turno_id}", status_code=204)
-def delete_turno_empresa(empresa_id: int, turno_id: int, 
-    current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
-
-    crud_empresa.delete_turno(db, empresa_id, current_user.id, turno_id, constantes.LISTA_PARCIAL_DE_ESTADOS)
-
-@router.get("/{empresa_id}/turnos/estados", response_model=list[schemas_common.TurnoEstadoOut], status_code=200)
-def get_estados_turnos_empresa(empresa_id: int, 
-    current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
-
-    turnos = crud_empresa.get_estados_turnos(db, empresa_id, current_user.id)
-
-    turnos_estados = [mappers_empresa.turno_estado_out(turno) for turno in turnos]
-
-    return turnos_estados
-
-# Devuelve todos los turnos que la empresa ya completó (tabla Historial) (el primero devuelto será el más reciente)
-@router.get("/{empresa_id}/historial", response_model=schemas_empresa.HistorialEmpresaOut, status_code=200)
-def get_historial_empresa(empresa_id: int, current_user: models.Usuario = Depends(autenticacion.get_current_user), 
-    db: Session = Depends(get_db), before: Optional[datetime] = Query(None)):
-    
-    fecha_hora_ultima = timezone.to_naive_utc(before) if before else datetime.max # si el before fue pasado, se toma, y si no, se toma datetime.max
-
-    historial, ultimo_cursor = crud_empresa.get_historial(
-        db, empresa_id, current_user.id, fecha_hora_ultima=fecha_hora_ultima)
-
-    historial_out = [mappers_empresa.turno_historial_empresa(h) for h in historial]
-    
-    respuesta = schemas_empresa.HistorialEmpresaOut(
-        historial=historial_out, # historial_out es una lista de objetos de clase TurnoHistorialEmpresa de Pydantic
-        ultimo_cursor=timezone.ensure_utc(ultimo_cursor)) # ultimo_cursor volverá si el usuario pide más historial
+    respuesta = schemas_sucursal.ClientesSucursalOut(
+        clientes=clientes_out, # clientes_out es una lista de objetos de clase ClienteOut de Pydantic
+        ultimo_cursor_id=ultimo_cursor_id,
+    ) # el campo ultimo_cursor_id volverá si la sucursal pide más clientes
     
     return respuesta
 
-@router.get("/{empresa_id}/servicios", response_model=list[schemas_empresa.ServicioEmpresaOut], status_code=200)
-def get_servicios_empresa(
-    empresa_id: int,
+@router.post("/{sucursal_id}/clientes", response_model=schemas_sucursal.ClienteOut, status_code=201)
+def create_cliente_sucursal(
+    cliente_nuevo: schemas_sucursal.ClienteCreate,
+    sucursal_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db)):
+    db: Session = Depends(get_db),
+):
 
-    servicios = crud_empresa.get_servicios(db, empresa_id, current_user.id)
+    cliente = crud_sucursal.create_cliente(db, sucursal_id, current_user.id, cliente_nuevo)
     
-    servicios_out = [mappers_empresa.servicio_empresa_out(servicio) for servicio in servicios]
+    cliente_out = mappers_sucursal.cliente_out(cliente)
+
+    return cliente_out
+
+# Actualizar cliente
+@router.patch("/{sucursal_id}/clientes/{cliente_id}", response_model=schemas_sucursal.ClienteOut, status_code=200)
+def update_cliente_sucursal(
+    cliente_update: schemas_sucursal.ClienteUpdateIn,
+    sucursal_id: int = Path(..., ge=1),
+    cliente_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    cliente = crud_sucursal.update_cliente(db, sucursal_id, current_user.id, cliente_id, cliente_update)
+
+    cliente_out = mappers_sucursal.cliente_out(cliente)
+
+    return cliente_out
+
+@router.patch("/{sucursal_id}/clientes/{cliente_id}/desactivar", status_code=204)
+def deactivate_cliente_sucursal(
+    sucursal_id: int = Path(..., ge=1),
+    cliente_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    crud_sucursal.deactivate_cliente(db, sucursal_id, current_user.id, cliente_id)
+
+@router.patch("/{sucursal_id}/clientes/{cliente_id}/reactivar", status_code=204)
+def reactivate_cliente_sucursal(
+    sucursal_id: int = Path(..., ge=1),
+    cliente_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    crud_sucursal.reactivate_cliente(db, sucursal_id, current_user.id, cliente_id)
+
+@router.get("/{sucursal_id}/turnos", response_model=list[schemas_sucursal.TurnoSucursalOut], status_code=200)
+def get_turnos_sucursal(
+    sucursal_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    turnos = crud_sucursal.get_turnos(db, sucursal_id, current_user.id)
+    
+    turnos_out = [mappers_sucursal.turno_sucursal_out(turno) for turno in turnos]
+
+    return turnos_out
+
+@router.post("/{sucursal_id}/turnos", response_model=schemas_sucursal.TurnoSucursalOut, status_code=201)
+def reservar_turno(
+    reserva: schemas_sucursal.ReservaTurnoSucursalIn,
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    turno = crud_sucursal.reservar_turno(db, sucursal_id, current_user.id, reserva)
+
+    turno_out = mappers_sucursal.turno_sucursal_out(turno)
+
+    return turno_out
+
+# Modifica el estado de un turno de la tabla Turno y devuelve el turno con el estado modificado
+@router.patch("/{sucursal_id}/turnos/{turno_id}/estado", response_model=schemas_sucursal.TurnoSucursalOut, status_code=200)
+def update_estado_turno_sucursal(
+    turno_update: schemas_sucursal.TurnoEstadoUpdateIn,
+    sucursal_id: int = Path(..., ge=1),
+    turno_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    turno_modificado = crud_sucursal.update_estado_turno(db, sucursal_id, current_user, turno_id, turno_update)
+    
+    turno_out = mappers_sucursal.turno_sucursal_out(turno_modificado)
+
+    return turno_out
+
+@router.delete("/{sucursal_id}/turnos/{turno_id}", status_code=204)
+def delete_turno_sucursal(
+    sucursal_id: int = Path(..., ge=1),
+    turno_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    crud_sucursal.delete_turno(db, sucursal_id, current_user.id, turno_id, constantes.LISTA_PARCIAL_DE_ESTADOS)
+
+@router.get("/{sucursal_id}/turnos/estados", response_model=list[schemas_common.TurnoEstadoOut], status_code=200)
+def get_estados_turnos_sucursal(
+    sucursal_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    turnos = crud_sucursal.get_estados_turnos(db, sucursal_id, current_user.id)
+
+    turnos_estados = [mappers_sucursal.turno_estado_out(turno) for turno in turnos]
+
+    return turnos_estados
+
+# Devuelve todos los turnos que la sucursal ya completó (el primero devuelto será el más reciente)
+@router.get("/{sucursal_id}/turnos/historial", response_model=schemas_sucursal.HistorialSucursalOut, status_code=200)
+def get_historial_sucursal(
+    sucursal_id: int = Path(..., ge=1),
+    fecha_hora_ultima: datetime | None = Query(default=None),
+    id_ultimo: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=50, ge=1, le=100, alias="limite"),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    # si el fecha_hora_ultima fue pasado, se toma, y si no, se toma datetime.max
+    fecha_hora_ultima = timezone.to_naive_utc(fecha_hora_ultima) if fecha_hora_ultima else datetime.max
+
+    id_ultimo = id_ultimo if id_ultimo else 2**31 - 1 # valor grande si no viene
+
+    historial, ultimo_cursor = crud_sucursal.get_historial(
+        db, sucursal_id, current_user.id, fecha_hora_ultima=fecha_hora_ultima, id_ultimo=id_ultimo, limit=limit,
+    )
+
+    historial_out = [mappers_sucursal.turno_historial_sucursal(h) for h in historial]
+    
+    respuesta = schemas_sucursal.HistorialSucursalOut(
+        historial=historial_out, # historial_out es una lista de objetos de clase TurnoHistorialSucursal de Pydantic
+        ultimo_cursor_fecha_hora=timezone.ensure_utc(ultimo_cursor[0]) if ultimo_cursor[0] else None,
+        ultimo_cursor_id=ultimo_cursor[1],
+    ) # los campos ultimo_cursor volverán si la sucursal pide más historial
+    
+    return respuesta
+
+@router.get("/{sucursal_id}/servicios", response_model=list[schemas_sucursal.ServicioSucursalOut], status_code=200)
+def get_servicios_sucursal(
+    sucursal_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    servicios = crud_sucursal.get_servicios(db, sucursal_id, current_user.id)
+    
+    servicios_out = [mappers_sucursal.servicio_sucursal_out(servicio) for servicio in servicios]
 
     return servicios_out
 
-@router.post("/{empresa_id}/servicios", response_model=schemas_empresa.ServicioEmpresaOut, status_code=201)
-def create_servicio_empresa(
-    empresa_id: int,
-    servicio_nuevo: schemas_empresa.ServicioCreate,
+@router.post("/{sucursal_id}/servicios", response_model=schemas_sucursal.ServicioSucursalOut, status_code=201)
+def create_servicio_sucursal(
+    servicio_nuevo: schemas_sucursal.ServicioCreate,
+    sucursal_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db)):
+    db: Session = Depends(get_db),
+):
 
-    servicio = crud_empresa.create_servicio(db, empresa_id, current_user.id, servicio_nuevo)
+    servicio = crud_sucursal.create_servicio(db, sucursal_id, current_user.id, servicio_nuevo)
     
-    servicio_out = mappers_empresa.servicio_empresa_out(servicio)
+    servicio_out = mappers_sucursal.servicio_sucursal_out(servicio)
 
     return servicio_out
 
-@router.patch("/{empresa_id}/servicios", response_model=schemas_empresa.ServicioEmpresaOut, status_code=200)
-def update_servicio_empresa(
-    empresa_id: int,
-    servicio_update: schemas_empresa.ServicioUpdateIn,
+@router.patch("/{sucursal_id}/servicios/{servicio_id}", response_model=schemas_sucursal.ServicioSucursalOut, status_code=200)
+def update_servicio_sucursal(
+    servicio_update: schemas_sucursal.ServicioUpdateIn,
+    sucursal_id: int = Path(..., ge=1),
+    servicio_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db)):
+    db: Session = Depends(get_db),
+):
 
-    servicio = crud_empresa.update_servicio(db, empresa_id, current_user.id, servicio_update)
+    servicio = crud_sucursal.update_servicio(db, sucursal_id, servicio_id, current_user.id, servicio_update)
     
-    servicio_out = mappers_empresa.servicio_empresa_out(servicio)
+    servicio_out = mappers_sucursal.servicio_sucursal_out(servicio)
 
     return servicio_out
 
@@ -192,86 +304,124 @@ def update_servicio_empresa(
 #     return {"message": "Servicio eliminado con éxito"}
 # else:
 #     return {"message": "Servicios eliminados con éxito"}
-@router.delete("/{empresa_id}/servicios", status_code=204)
-def delete_servicios_empresa(
-    empresa_id: int,
-    servicios_delete: schemas_empresa.ServiciosDeleteIn,
+@router.delete("/{sucursal_id}/servicios", status_code=204)
+def delete_servicios_sucursal(
+    servicios_delete: schemas_sucursal.ServiciosDeleteIn,
+    sucursal_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db)):
+    db: Session = Depends(get_db),
+):
 
-    crud_empresa.delete_servicios(db, empresa_id, current_user.id, servicios_delete.servicios)
+    crud_sucursal.delete_servicios(db, sucursal_id, current_user.id, servicios_delete.servicios)
 
-@router.get("/{empresa_id}/miembros", response_model=list[schemas_empresa.MiembroOut], status_code=200)
-def get_miembros_empresa(
-    empresa_id: int,
+@router.get("/{sucursal_id}/miembros", response_model=list[schemas_sucursal.MiembroSucursalOut], status_code=200)
+def get_miembros_sucursal(
+    sucursal_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db)):
+    db: Session = Depends(get_db),
+):
 
-    miembros = crud_empresa.get_miembros(db, empresa_id, current_user.id)
+    miembros = crud_sucursal.get_miembros(db, sucursal_id, current_user.id)
     
-    miembros_out = [mappers_empresa.miembro_out(miembro) for miembro in miembros]
+    miembros_out = [mappers_sucursal.miembro_sucursal_out(miembro) for miembro in miembros]
 
     return miembros_out
 
-@router.patch("/{empresa_id}/miembros/me", response_model=schemas_empresa.RolOut, status_code=200)
-def update_personal_rol(empresa_id: int, data: schemas_empresa.UpdateRolIn, 
-    current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
-
-    rol_nombre = crud_empresa.update_rol(db, empresa_id, current_user.id, current_user.id, data.nuevo_rol)
-
-    rol_out = mappers_empresa.rol_out(rol_nombre)
-
-    return rol_out
-
-@router.delete("/{empresa_id}/miembros/me", status_code=204)
-def empresa_out(empresa_id: int, current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
-
-    crud_empresa.empresa_out(db, empresa_id, current_user.id)
-
-# return "message": f"Rol de {miembro_empresa.usuario.apellido}, {miembro_empresa.usuario.nombre} modificado a {nuevo_rol}"
-@router.patch("/{empresa_id}/miembros/{target_id}",
-    response_model=schemas_empresa.RolOut, status_code=200) # target_id es el id del miembro como usuario en la tabla usuario
-def update_rol(empresa_id: int, target_id: int, data: schemas_empresa.UpdateRolIn, 
-    current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
-
-    rol_nombre = crud_empresa.update_rol(db, empresa_id, current_user.id, target_id, data.nuevo_rol)
-
-    rol_out = mappers_empresa.rol_out(rol_nombre)
-
-    return rol_out
-
-# {"message": f"{apellido}, {nombre} fue eliminado correctamente de esta empresa"}
-@router.delete("/{empresa_id}/miembros/{target_id}", status_code=204) # target_id es el id del miembro como usuario en la tabla usuario
-def delete_miembro(empresa_id: int, target_id: int,
-    current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
-
-    crud_empresa.delete_miembro(db, empresa_id, current_user.id, target_id)
-
-@router.get("/{empresa_id}/bloqueos", response_model=list[schemas_empresa.BlockUserOut], status_code=200)
-def get_usuarios_bloqueados(
-    empresa_id: int,
+@router.delete("/{sucursal_id}/miembros/me", status_code=204)
+def leave_sucursal(
+    sucursal_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db)):
+    db: Session = Depends(get_db),
+):
 
-    resultados = crud_empresa.get_usuarios_bloqueados(db, empresa_id, current_user.id)
+    crud_sucursal.leave_sucursal(db, sucursal_id, current_user.id)
+
+# "message": f"Rol de {apellido}, {nombre} añadido a la sucursal con éxito"
+# endpoint para agregar a un miembro ya de una sucursal de una empresa a otra sucursal de la misma empresa sin borrarlo de ninguna otra sucursal
+@router.post("/{sucursal_id}/miembros/{target_id}",
+    response_model=schemas_empresa.MiembrosEmpresaOut,
+    status_code=200) # target_id es el id del miembro como usuario en la tabla usuario
+def add_miembro_sucursal(
+    data: schemas_sucursal.MiembroSucursalAddIn,
+    sucursal_id: int = Path(..., ge=1),
+    target_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    # miembro es una lista de objetos Miembro_Sucursal
+    miembro = crud_sucursal.add_miembro(db, sucursal_id, current_user.id, target_id, data.nuevo_rol)
+
+    miembro_out = mappers_empresa.miembros_empresa_out([], miembro)
+
+    return miembro_out
+
+# "message": f"Rol de {apellido}, {nombre} modificado a {nuevo_rol}"
+@router.patch("/{sucursal_id}/miembros/{target_id}",
+    response_model=schemas_empresa.MiembrosEmpresaOut,
+    status_code=200) # target_id es el id del miembro como usuario en la tabla usuario
+def update_rol(
+    data: schemas_common.UpdateRolIn,
+    sucursal_id: int = Path(..., ge=1),
+    target_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    miembro = crud_sucursal.update_rol(db, sucursal_id, current_user.id, target_id, data.nuevo_rol)
+
+    if isinstance(miembro, models.Miembro_Empresa):
+        miembro_out = mappers_empresa.miembros_empresa_out([miembro], [])
+    if isinstance(miembro, list[models.Miembro_Sucursal]):
+        miembro_out = mappers_empresa.miembros_empresa_out([], miembro)
+
+    return miembro_out
+
+# {"message": f"{apellido}, {nombre} fue eliminado correctamente de esta sucursal"}
+@router.delete("/{sucursal_id}/miembros/{target_id}", status_code=204) # target_id es el id del miembro como usuario en la tabla usuario
+def delete_miembro_sucursal(
+    sucursal_id: int = Path(..., ge=1),
+    target_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    crud_sucursal.delete_miembro(db, sucursal_id, current_user.id, target_id)
+
+@router.get("/{sucursal_id}/bloqueos", response_model=list[schemas_sucursal.BlockClienteOut], status_code=200)
+def get_clientes_bloqueados_sucursal(
+    sucursal_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    resultados = crud_sucursal.get_clientes_bloqueados(db, sucursal_id, current_user.id)
     
-    bloqueos_out = [mappers_empresa.block_user_out(bloqueo, miembro_rol) for bloqueo, miembro_rol in resultados]
+    bloqueos_out = [mappers_sucursal.block_cliente_out(bloqueo, miembro_rol) for bloqueo, miembro_rol in resultados]
 
     return bloqueos_out
 
-@router.post("/{empresa_id}/bloqueos",
-    response_model=schemas_empresa.BlockUserOut, status_code=201)
-def block_usuario(empresa_id: int, data: schemas_empresa.BlockUserIn,
-    current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
+@router.post("/{sucursal_id}/bloqueos/{cliente_id}", response_model=schemas_sucursal.BlockClienteOut, status_code=201)
+def block_cliente_sucursal(
+    data: schemas_sucursal.BlockClienteIn,
+    sucursal_id: int = Path(..., ge=1),
+    cliente_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
 
-    bloqueo, miembro_rol = crud_empresa.block_usuario(db, empresa_id, current_user.id, data.email, data.motivo)
+    bloqueo, miembro_rol = crud_sucursal.block_cliente(db, sucursal_id, current_user.id, cliente_id, data.motivo)
 
-    bloqueo_out =  mappers_empresa.block_user_out(bloqueo, miembro_rol)
+    bloqueo_out =  mappers_sucursal.block_cliente_out(bloqueo, miembro_rol)
 
     return bloqueo_out
 
-@router.delete("/{empresa_id}/bloqueos", status_code=204)
-def unlock_usuario(empresa_id: int, data: schemas_empresa.UnlockUserIn,
-    current_user: models.Usuario = Depends(autenticacion.get_current_user), db: Session = Depends(get_db)):
+@router.delete("/{sucursal_id}/bloqueos/{cliente_id}", status_code=204)
+def unlock_cliente_sucursal(
+    sucursal_id: int = Path(..., ge=1),
+    cliente_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
 
-    crud_empresa.unlock_usuario(db, empresa_id, current_user.id, data.email)
+    crud_sucursal.unlock_cliente(db, sucursal_id, current_user.id, cliente_id)

@@ -1,14 +1,13 @@
 import random
-import logging
 
 import requests
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 
-from core.config import FRONTEND_URL, EMAIL, SERVER_API_KEY_BREVO
+from core.config import (FRONTEND_URL, FRONT_VERIFICACTION_EMAIL_PATH,
+    FRONT_INVITE_EMAIL_PATH, FRONT_RESET_EMAIL_PATH, EMAIL, SERVER_API_KEY_BREVO)
+from core.logger import logger
 from core import exceptions, timezone
-
-logger = logging.getLogger(__name__)
 
 # Configurar la API Key
 configuration = sib_api_v3_sdk.Configuration()
@@ -17,14 +16,11 @@ configuration.api_key['api-key'] = SERVER_API_KEY_BREVO # clave de Brevo
 # Crear cliente
 api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
 
-SENDER_NAME = "MiTurno"
-FRONT_VERIFICACTION_EMAIL_URL = f"{FRONTEND_URL}/pages/usuarios/verificacion-email/verificacion-email?token="
-FRONT_INVITE_EMAIL_URL = f"{FRONTEND_URL}/pages/usuarios/aceptar-invitacion/aceptar-invitacion?token="
-FRONT_RESET_EMAIL_URL = f"{FRONTEND_URL}/pages/usuarios/restablecer-password/reset-password.html?token="
+SENDER_NAME = "Mi Turno"
 
 # ------------------ MAIL DE INVITACIÓN ------------------ #
 def send_verification_email(to_email: str, token: str):
-    verify_link = FRONT_VERIFICACTION_EMAIL_URL + token
+    verify_link = FRONTEND_URL + FRONT_VERIFICACTION_EMAIL_PATH + token
 
     send_email = sib_api_v3_sdk.SendSmtpEmail(
         to=[{"email": to_email}],
@@ -42,7 +38,7 @@ def send_verification_email(to_email: str, token: str):
         raise exceptions.EmailSendFailedError()
 
 def send_invite_email(to_email: str, token: str, empresa_nombre: str, rol: str):
-    invite_link = FRONT_INVITE_EMAIL_URL + token
+    invite_link = FRONTEND_URL + FRONT_INVITE_EMAIL_PATH + token
     '''
     html_content = f"""
     <p>Fuiste invitado a unirte a <strong>{empresa_nombre}</strong> como <strong>{rol}</strong>.</p>
@@ -78,7 +74,7 @@ def send_invite_email(to_email: str, token: str, empresa_nombre: str, rol: str):
 
 # ------------------ MAIL PARA RESETEO DE CONTRASEÑA ------------------ #
 def send_reset_email(to_email: str, token: str):
-    reset_link = FRONT_RESET_EMAIL_URL + token
+    reset_link = FRONTEND_URL + FRONT_RESET_EMAIL_PATH + token
     '''
     html_body = f"<p>Para resetear tu contraseña hacé click aquí: <a href='{reset_link}'>{reset_link}</a></p>"
     text_body = f"Para resetear tu contraseña hacé click aquí: {reset_link}"
@@ -211,11 +207,11 @@ def enviar_sms(to_number: str, mensaje: str):
         message = client_twilio.messages.create(
             body=mensaje,
             from_=TWILIO_TELEFONO,
-            to='to_number'
+            to=to_number
         )
         return to_number
     except Exception as e:
-        print("Error al enviar SMS:", e)
+        logger.error(f"Error al enviar SMS a {to_number}: {e}")
         return None
 
 TEMPLATE_OTP = "otp_reset"

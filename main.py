@@ -2,7 +2,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import usuario, auth, empresa, invitaciones, geo, whatsapp
+from routers import usuario, auth, empresa, sucursal, invitaciones, geo
 from core.config import PORT, FRONTEND_URL
 from core.database import engine, Base # engine es la conexión a la base de datos, y Base es la clase base de los modelos.
 from services.scheduler import start_scheduler
@@ -29,9 +29,9 @@ app.add_middleware(
 app.include_router(usuario.router)
 app.include_router(auth.router)
 app.include_router(empresa.router)
+app.include_router(sucursal.router)
 app.include_router(invitaciones.router)
 app.include_router(geo.router)
-app.include_router(whatsapp.router)
 
 register_exception_handlers(app)
 

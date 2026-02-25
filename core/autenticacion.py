@@ -1,4 +1,5 @@
 from uuid import uuid4
+import hashlib
 from datetime import datetime, timedelta
 
 from fastapi import Depends, Cookie
@@ -23,11 +24,23 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 '''La autenticación es el proceso de verificar la identidad de alguien que ya tiene cuenta. Se compara lo 
 que ingresa (email + contraseña por ejemplo) con lo que está guardado en la base de datos. Si coincide, recibe el acceso a la cuenta.'''
 def authenticate(session: Session, email: str, password: str):
+
     user = session.query(models.Usuario).filter_by(email=email).first()
-    if not user:
-        return None
-    if verify_password(password, user.hashed_password):
+
+    # Definimos contra qué vamos a comparar
+    if user:
+        target_hash = user.hashed_password
+    else:
+        # HASH FANTASMA: Un hash real (de una password cualquiera).
+        # Para que verify_password tarde lo mismo que si el usuario existiera.
+        target_hash = "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6L65JG6CwsPKOOuW"
+
+    # Verificamos (esta línea es la que tarda ~500ms SIEMPRE) antes de devolver algo
+    es_valido = verify_password(password, target_hash)
+
+    if user and es_valido:
         return user
+    
     return None
 
 # Esta función chequea el token. Se usa cuando el usuario hace algo con el back que no sea registrarse o loguearse
@@ -49,14 +62,19 @@ def get_current_user(token: str = Cookie(default=None, # token: str = Cookie() l
         raise exceptions.AuthTokenRevokedError()
     
     # Traer usuario
-    user = (db.query(models.Usuario)
+    user = (
+        db.query(models.Usuario)
         .options(
-            joinedload(models.Usuario.telefonos),
+            selectinload(models.Usuario.telefonos),
             joinedload(models.Usuario.direcciones),
-            selectinload(models.Usuario.favoritos).joinedload(models.Empresa.direccion),
-            selectinload(models.Usuario.favoritos).joinedload(models.Empresa.telefonos),
-            selectinload(models.Usuario.favoritos).selectinload(models.Empresa.servicios),
-            joinedload(models.Usuario.miembro_empresas).joinedload(models.Miembro_Empresa.empresa))
+            selectinload(models.Usuario.favoritos).joinedload(models.Sucursal.empresa),
+            selectinload(models.Usuario.favoritos).selectinload(models.Sucursal.telefonos),
+            selectinload(models.Usuario.favoritos).joinedload(models.Sucursal.direccion),
+            selectinload(models.Usuario.favoritos).selectinload(models.Sucursal.servicios),
+            selectinload(models.Usuario.membresias).joinedload(models.Miembro.empresa),
+            selectinload(models.Usuario.membresias).joinedload(models.Miembro.sucursal),
+            selectinload(models.Usuario.membresias).joinedload(models.Miembro.rol),
+        )
         .filter(models.Usuario.id == entity_id).first()
     )
 
@@ -106,6 +124,7 @@ def verify_email_token(token: str):
 # ---------------- VÍA EMAIL ---------------- #
 
 def generate_password_reset_token(session: Session, email: str) -> str:
+
     user = session.query(models.Usuario).filter_by(email=email).first()
 
     if not user:
@@ -113,26 +132,39 @@ def generate_password_reset_token(session: Session, email: str) -> str:
 
     if not user.email_verificado:
         raise exceptions.UserEmailNotVerifiedError()
-
-    token = str(uuid4())
+    
+    token_plano = str(uuid4()) # el que viaja por el mail
+    
+    # Creamos un hash rápido para la DB (SHA-256)
+    # Esto es determinista: el mismo token_plano siempre dará el mismo hash_db
+    token_hash_db = hashlib.sha256(token_plano.encode()).hexdigest()
 
     ahora_utc = timezone.to_naive_utc(timezone.now_utc())
 
     expires_at = ahora_utc + timedelta(hours=1)
 
     try:
-        reset_entry = models.Token(usuario_id=user.id, token=token, created_at=ahora_utc, expires_at=expires_at)
+        # Borramos cualquier token previo de este usuario para que no se acumulen
+        session.query(models.Token).filter(models.Token.usuario_id == user.id).delete()
+
+        reset_entry = models.Token(usuario_id=user.id, token=token_hash_db, created_at=ahora_utc, expires_at=expires_at)
+
         session.add(reset_entry)
         session.commit()
-        return token
     except Exception:
         session.rollback()
         raise
+    
+    return token_plano
 
-def reset_password_email(session: Session, token: str, new_password: str):
+def reset_password_email(session: Session, token_plano: str, new_password: str):
+
+    # Hashear el token recibido para poder buscarlo
+    # Importante: usar la misma lógica que al generar (sha256 + hexdigest)
+    token_hash_db = hashlib.sha256(token_plano.encode()).hexdigest()
 
     # Se busca el token en la tabla Token
-    token_entry = session.query(models.Token).filter_by(token=token).first()
+    token_entry = session.query(models.Token).filter_by(token=token_hash_db).first()
 
     # Se ve que exista y que no haya expirado
     if not token_entry:
@@ -140,6 +172,15 @@ def reset_password_email(session: Session, token: str, new_password: str):
 
     ahora_utc = timezone.to_naive_utc(timezone.now_utc())
     if token_entry.expires_at < ahora_utc:
+
+        # Si expiró, lo borramos para limpiar la DB
+        try:
+            session.delete(token_entry)
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+
         raise exceptions.ExpiredResetTokenError()
     
     user = session.query(models.Usuario).filter_by(id=token_entry.usuario_id).first()
@@ -150,17 +191,13 @@ def reset_password_email(session: Session, token: str, new_password: str):
         # Se cambia la contraseña del usuario
         user.hashed_password = get_password_hash(new_password)
 
-        # Se borra el token de la base de datos para que no pueda reutilizarse (no reinicia el id)
-        session.delete(token_entry)
-
-        # Guardo los cambios
+        session.delete(token_entry) # se borra el token de la base de datos para que no pueda reutilizarse
         session.commit()
-
-        return user
-
     except Exception:
         session.rollback()
         raise
+    
+    return user
 
 # ---------------- VÍA TELÉFONO ---------------- #
 
@@ -181,7 +218,8 @@ def generate_password_reset_otp(db: Session, telefono: str, email: str):
         # Invalidar OTPs anteriores
         db.query(models.OTPCode).filter(
             models.OTPCode.usuario_id == usuario.id,
-            models.OTPCode.used == False).update({models.OTPCode.used: True})
+            models.OTPCode.used == False,
+        ).update({models.OTPCode.used: True})
 
         # Generar OTP
         otp = mensajes.generar_otp()
@@ -192,7 +230,8 @@ def generate_password_reset_otp(db: Session, telefono: str, email: str):
             usuario_id=usuario.id,
             code=otp,
             created_at=ahora_utc,
-            expires_at=ahora_utc + timedelta(minutes=2)
+            expires_at=ahora_utc + timedelta(minutes=2),
+            used=False,
         )
 
         db.add(nuevo_otp)
@@ -218,7 +257,8 @@ def reset_password_mobile(db: Session, telefono: str, otp: str, new_password: st
             models.OTPCode.usuario_id == usuario.id,
             models.OTPCode.code == otp,
             models.OTPCode.expires_at > ahora_utc,
-            models.OTPCode.used == False).first()
+            models.OTPCode.used == False,
+        ).first()
 
         if not otp_entry:
             raise exceptions.ResetOTPError(field="otp") # puede ser por invalidez o expiración

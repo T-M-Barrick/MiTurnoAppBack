@@ -15,11 +15,11 @@ def revoke_token(db: Session, jti: str, expires_at: datetime):
 
 def change_password(db: Session, user: models.Usuario, old_password: str, new_password: str):
 
-    if not autenticacion.verify_password(old_password, user.hashed_password):
-        raise exceptions.PasswordIncorrectError(field="old_password")
-
     if old_password == new_password:
         raise exceptions.PasswordInvalidFormatError(field="new_password")
+
+    if not autenticacion.verify_password(old_password, user.hashed_password):
+        raise exceptions.PasswordIncorrectError(field="old_password")
 
     try:
         user.hashed_password = autenticacion.get_password_hash(new_password)

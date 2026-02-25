@@ -1,14 +1,12 @@
 from uuid import uuid4
-import logging
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
+from core.logger import logger
 from core.exceptions import DomainError, AppSystemError
-from core.errores import PYDANTIC_ERROR_MAP, VALIDATORS_CODES_ERROR
-
-logger = logging.getLogger(__name__)
+from core.errores import PYDANTIC_ERROR_MAP
 
 def register_exception_handlers(app):
 
@@ -59,11 +57,8 @@ def register_exception_handlers(app):
         field = ".".join(map(str, first_error["loc"][1:]))
 
         if pydantic_type == "value_error":
-            if first_error["msg"] in VALIDATORS_CODES_ERROR:
-                code = first_error["msg"]
-            else:
-                code = "INVALID_INPUT"
-                logger.error(f"Error en el Front: {first_error['msg']}")
+            code = "INVALID_INPUT"
+            logger.error(f"Error en el Front: {first_error['msg']}")
         else:
             code = PYDANTIC_ERROR_MAP.get(pydantic_type, "INVALID_INPUT")
             if pydantic_type not in PYDANTIC_ERROR_MAP:

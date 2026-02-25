@@ -1,239 +1,110 @@
-from datetime import datetime, date, time
+from datetime import datetime, timedelta, date, time
+from typing import Self
 
-from pydantic import BaseModel, EmailStr, Field, conint, condecimal, constr, conlist, field_validator, model_validator, root_validator
+from pydantic import BaseModel, EmailStr, Field, conint, condecimal, constr, conlist, field_validator, model_validator
 
 from schemas.common import (Telefono, TelefonoConID, DireccionCreate,
-    DireccionOut, DireccionUpdateIn, DisponibilidadServicio, EstadoTurno, Rol)
+    DireccionOut, DireccionUpdateIn, DisponibilidadServicio, MiembroOut, EstadoTurno, RolEmpresa, RolSucursal)
 from core.timezone import validate_aware_utc
 
 class EmpresaCreate(BaseModel):
     cuit: constr(regex=r"^[0-9]{11}$")
     nombre: constr(min_length=1, max_length=50)
-    email: EmailStr = Field(max_length=255)
+    email: EmailStr = Field(..., max_length=255)
     rubro: constr(min_length=1, max_length=100) | None
     rubro2: constr(min_length=1, max_length=100) | None
-    telefonos: list[Telefono]
-    direccion: DireccionCreate # obligatorio al crear su empresa
+    reserva_publica_habilitada: bool
+    telefonos: list[Telefono] # se va a guardar en la sucursal que se hace por defecto
+    direccion: DireccionCreate # obligatorio al crear una empresa (se va a guardar en la sucursal que se hace por defecto)
 
     model_config = {"from_attributes": True}
 
 class EmpresaHomeOut(BaseModel):
     id: conint(ge=1)
-    cuit: constr(regex=r"^[0-9]{11}$")
     nombre: constr(min_length=1, max_length=50)
-    email: EmailStr = Field(max_length=255)
-    rubro: constr(min_length=1, max_length=100) | None
-    rubro2: constr(min_length=1, max_length=100) | None
+    logo_url: constr(min_length=1, max_length=255) | None
+    rol: RolEmpresa
+
+    model_config = {"from_attributes": True}
+
+class SucursalPerfilOut(BaseModel):
+    id: conint(ge=1)
+    nombre: constr(min_length=1, max_length=50) | None # sin incluir el nombre original de la empresa; si la empresa tiene una sola sucursal, nombre es None sí o sí
+    email: EmailStr | None = Field(..., max_length=255)
+    reserva_publica_habilitada: bool
     calificacion: condecimal(ge=0, le=10, max_digits=4, decimal_places=2) | None
     telefonos: list[TelefonoConID]
     direccion: DireccionOut
+
+    model_config = {"from_attributes": True}
+
+class EmpresaPerfilOut(BaseModel):
+    id: conint(ge=1)
+    cuit: constr(regex=r"^[0-9]{11}$")
+    nombre: constr(min_length=1, max_length=50)
+    email: EmailStr = Field(..., max_length=255)
+    rubro: constr(min_length=1, max_length=100) | None
+    rubro2: constr(min_length=1, max_length=100) | None
     logo_url: constr(min_length=1, max_length=255) | None
-    rol: Rol
+    rol: RolEmpresa
+    sucursales: list[SucursalPerfilOut]
 
     model_config = {"from_attributes": True}
 
 class EmpresaUpdateIn(BaseModel):
-    '''
-    Que en un campo se envíe None o no se envíe el campo directamente, significa que no se actualiza ese campo.
-    No significa, por lo menos en este schema, que si algo no se envía,
-    entonces se cambie en la base a NULL o se borre.
-    '''
     cuit: constr(regex=r"^[0-9]{11}$") | None = None
     nombre: constr(min_length=1, max_length=50) | None = None
     rubro: constr(min_length=1, max_length=100) | None = None
     rubro2: constr(min_length=1, max_length=100) | None = None
-    telefonos: list[TelefonoConID] | None = None  # [[id, numero], ...]. Si la lista viene vacía, se borran todos los teléfonos
-    direccion: DireccionUpdateIn | None = None
 
-    @root_validator(mode="before")
+    @model_validator(mode="before")
+    @classmethod
     def validar_campos_not_null(cls, values):
         """
         Rechaza cualquier campo que sea explícitamente enviado como None, exceptuando los campos en la lista de campos permitidos.
         Los campos que no se envíen simplemente se ignoran.
         """
+        if not isinstance(values, dict):
+            # si bien significa que el front envió cualquier cosa, lo devolvemos tal cual para que pydantic se encargue de tirar error
+            return values
+
         campos_permitidos_null = ["rubro", "rubro2"]
 
         for field, value in values.items():
-            if field not in campos_permitidos_null and value is None:
+            # field in cls.model_fields asegura que si el front envía datos basura de más, el validator los deje pasar y no tire error
+            if field in cls.model_fields and field not in campos_permitidos_null and value is None:
                 raise ValueError(f'El campo "{field}" en el schema EmpresaUpdateIn no puede enviarse como null')
 
         return values
+    
+    model_config = {"from_attributes": True}
 
 class EmpresaLogoOut(BaseModel):
     logo_url: constr(min_length=1, max_length=255) | None
 
-class TurnoEmpresaOut(BaseModel):
+    model_config = {"from_attributes": True}
+
+class MiembroEmpresaOut(BaseModel):
+    miembro: MiembroOut
+    rol: RolEmpresa # rol dentro de la empresa
+
+    model_config = {"from_attributes": True}
+
+class SucursalDeMiembro(BaseModel):
     id: conint(ge=1)
-    usuario_id: conint(ge=1)
-    usuario_dni: constr(regex=r"^[0-9]{6,8}$")
-    usuario_apellido: constr(min_length=1, max_length=50)
-    usuario_nombre: constr(min_length=1, max_length=50)
-    fecha_hora: datetime # debe salir como aware UTC
-    servicio_id: conint(ge=1)
-    nombre_de_servicio: constr(min_length=1, max_length=100)
-    duracion: conint(gt=0, multiple_of=5)
-    precio: condecimal(ge=0, max_digits=10, decimal_places=2)
-    aclaracion_de_servicio: constr(min_length=1, max_length=255) | None
-    profesional_dni: constr(regex=r"^[0-9]{6,8}$") | None
-    profesional_apellido: constr(min_length=1, max_length=50) | None
-    profesional_nombre: constr(min_length=1, max_length=50) | None
-    estado_turno: EstadoTurno
-
-    @field_validator("fecha_hora")
-    def validar_fecha_hora_utc(value: datetime) -> datetime:
-        return validate_aware_utc(value)
+    nombre: constr(min_length=1, max_length=50) | None # sin incluir el nombre original de la empresa; si la empresa tiene una sola sucursal, nombre es None sí o sí
+    rol: RolSucursal # rol dentro de la sucursal
 
     model_config = {"from_attributes": True}
 
-class TurnoHistorialEmpresa(BaseModel):
-    usuario_id: conint(ge=1)
-    usuario_dni: constr(regex=r"^[0-9]{6,8}$")
-    usuario_apellido: constr(min_length=1, max_length=50)
-    usuario_nombre: constr(min_length=1, max_length=50)
-    fecha_hora: datetime # debe salir como aware UTC
-    nombre_de_servicio: constr(min_length=1, max_length=100)
-    duracion: conint(gt=0, multiple_of=5)
-    precio: condecimal(ge=0, max_digits=10, decimal_places=2)
-    aclaracion_de_servicio: constr(min_length=1, max_length=255) | None
-    profesional_dni: constr(regex=r"^[0-9]{6,8}$") | None
-    profesional_apellido: constr(min_length=1, max_length=50) | None
-    profesional_nombre: constr(min_length=1, max_length=50) | None
-    estado_turno: EstadoTurno
-
-    @field_validator("fecha_hora")
-    def validar_fecha_hora_utc(value: datetime) -> datetime:
-        return validate_aware_utc(value)
+class MiembroSucursalOut(BaseModel):
+    miembro: MiembroOut
+    sucursales: conlist(SucursalDeMiembro, min_items=1)
 
     model_config = {"from_attributes": True}
 
-class HistorialEmpresaOut(BaseModel):
-    historial: list[TurnoHistorialEmpresa]
-    ultimo_cursor: datetime | None
-
-    @field_validator("ultimo_cursor")
-    def validar_fecha_hora_utc(value: datetime | None) -> datetime | None:
-        return validate_aware_utc(value) if value else None
-
-    model_config = {"from_attributes": True}
-
-class ServicioEmpresaOut(BaseModel):
-    id: conint(ge=1)
-    nombre: constr(min_length=1, max_length=100)
-    duracion: conint(gt=0, multiple_of=5)
-    precio: condecimal(ge=0, max_digits=10, decimal_places=2)
-    aclaracion: constr(min_length=1, max_length=255) | None
-    profesional_id: conint(ge=2) | None # 1 no se permite porque significa que no tiene profesional y debe salir como None
-    profesional_dni: constr(regex=r"^[0-9]{6,8}$") | None
-    profesional_apellido: constr(min_length=1, max_length=50) | None
-    profesional_nombre: constr(min_length=1, max_length=50) | None
-    minutos_min_reserva: conint(ge=0)
-    dias_max_reserva: conint(ge=0) | None
-    cancelacion_limitada: bool
-    disponibilidades: list[DisponibilidadServicio]
-
-    model_config = {"from_attributes": True}
-
-class ServicioCreate(BaseModel):
-    nombre: constr(min_length=1, max_length=100)
-    duracion: conint(gt=0, multiple_of=5)
-    precio: condecimal(ge=0, max_digits=10, decimal_places=2)
-    aclaracion: constr(min_length=1, max_length=255) | None
-    profesional_id: conint(ge=2) | None # 1 no se permite porque significa que no tiene profesional y debe entrar como None
-    minutos_min_reserva: conint(ge=0)
-    dias_max_reserva: conint(ge=0) | None
-    cancelacion_limitada: bool
-    disponibilidades: list[DisponibilidadServicio] # Lista de disponibilidades por días
-
-class ServicioUpdateIn(BaseModel):
-    '''
-    Que no se envíe el campo, significa que no se actualiza ese campo. No significa,
-    por lo menos en este schema, que si algo no se envía, entonces se cambie en la base a NULL.
-
-    En el caso de disponibilidades, pydantic no va a dejar que el usuario envíe None en su campo.
-    Si el campo no se envía, entonces no se modifica, pero en caso de que sí se envíe y sea
-    una lista vacía, entonces se interpreta como que quiere borrar todas las disponibilidades
-    para con ese servicio y se procede a borrarlas a todas (que el programa identifique si envió disponibilidades
-    o lo envió como lista vacía se hace en la función crud_empresa.update_servicios en la parte que dice
-    update_data = s.dict(exclude_unset=True)).
-    Si hay alguna modificación en las disponibilidades, deberá enviarse todas las disponibilidades, no solo las que
-    se modificaron.
-
-    Todo campo que se envíe como None (y el validator lo permita), se cambia en la base a NULL.
-    '''
-    id: conint(ge=1) # obligatorio
-    nombre: constr(min_length=1, max_length=100) | None = None
-    duracion: conint(gt=0, multiple_of=5) | None = None
-    precio: condecimal(ge=0, max_digits=10, decimal_places=2) | None = None
-    aclaracion: constr(min_length=1, max_length=255) | None = None
-    profesional_id: conint(ge=2) | None = None # 1 no se permite porque significa que no tiene profesional y debe entrar como None
-    minutos_min_reserva: conint(ge=0) | None = None
-    dias_max_reserva: conint(ge=0) | None = None
-    cancelacion_limitada: bool | None = None
-    disponibilidades: list[DisponibilidadServicio] | None = None # lista de disponibilidades por días
-    
-    @root_validator(mode="before")
-    def validar_campos_not_null(cls, values):
-        """
-        Rechaza cualquier campo que sea explícitamente enviado como None, exceptuando los campos en la lista de campos permitidos.
-        Los campos que no se envíen simplemente se ignoran.
-        """
-        campos_permitidos_null = ["aclaracion", "profesional_id", "dias_max_reserva"]
-
-        for field, value in values.items():
-            if field not in campos_permitidos_null and value is None:
-                raise ValueError(f'El campo "{field}" en el schema ServicioUpdateIn no puede enviarse como null')
-
-        return values
-
-    model_config = {"from_attributes": True}
-
-class ServiciosDeleteIn(BaseModel):
-    servicios: conlist(conint(ge=1), min_length=1) # IDs de servicios a eliminar
-
-    model_config = {"from_attributes": True}
-
-class MiembroOut(BaseModel):
-    id: conint(ge=1)
-    dni: constr(regex=r"^[0-9]{6,8}$")
-    apellido: constr(min_length=1, max_length=50)
-    nombre: constr(min_length=1, max_length=50)
-    email: EmailStr = Field(max_length=255)
-    rol: Rol # rol dentro de la empresa
-
-    model_config = {"from_attributes": True}
-
-class UpdateRolIn(BaseModel):
-    nuevo_rol: Rol
-
-    model_config = {"from_attributes": True}
-
-class RolOut(BaseModel):
-    rol: Rol
-
-    model_config = {"from_attributes": True}
-
-class BlockUserIn(BaseModel):
-    email: EmailStr = Field(max_length=255)
-    motivo: constr(min_length=1, max_length=255) | None
-
-    model_config = {"from_attributes": True}
-
-class BlockUserOut(BaseModel):
-    usuario_email: EmailStr = Field(max_length=255)
-    miembro_dni: constr(regex=r"^[0-9]{6,8}$")
-    miembro_apellido: constr(min_length=1, max_length=50)
-    miembro_nombre: constr(min_length=1, max_length=50)
-    miembro_rol: Rol | None # rol dentro de la empresa
-    motivo: constr(min_length=1, max_length=255) | None
-    created_at: datetime # debe salir como aware UTC
-
-    @field_validator("created_at")
-    def validar_fecha_hora_utc(value: datetime) -> datetime:
-        return validate_aware_utc(value)
-
-    model_config = {"from_attributes": True}
-
-class UnlockUserIn(BaseModel):
-    email: EmailStr = Field(max_length=255)
+class MiembrosEmpresaOut(BaseModel):
+    miembros_empresa: list[MiembroEmpresaOut]
+    miembros_sucursales: list[MiembroSucursalOut]
 
     model_config = {"from_attributes": True}

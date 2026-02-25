@@ -1,7 +1,8 @@
-from datetime import datetime, date, time
+from datetime import datetime, timedelta, date, time
 from enum import Enum
+from typing import Self
 
-from pydantic import BaseModel, Field, conint, confloat, constr, field_validator, model_validator, root_validator
+from pydantic import BaseModel, Field, conint, confloat, constr, field_validator, model_validator
 
 class EstadoTurno(str, Enum):
     CONFIRMADO = "CONFIRMADO"
@@ -12,10 +13,10 @@ class EstadoTurno(str, Enum):
 
 class RolEmpresa(str, Enum):
     propietario = "propietario"
-    gerente_general = "gerente_general"
+    gerente_empresa = "gerente_empresa"
 
 class RolSucursal(str, Enum):
-    gerente = "gerente"
+    gerente_sucursal = "gerente_sucursal"
     empleado = "empleado"
 
 class Telefono(BaseModel):
@@ -76,28 +77,6 @@ class DireccionUpdateIn(BaseModel):
 
     model_config = {"from_attributes": True}
 
-class TurnoUpdateIn(BaseModel):
-    id: conint(ge=1)
-    estado_turno: EstadoTurno | None = None
-    motivo: constr(min_length=1, max_length=255) | None = None
-    recordatorio: conint(ge=0, le=1410, multiple_of=30) | None = None # minutos antes
-
-    @root_validator(mode="before")
-    def validar_campos_not_null(cls, values):
-        """
-        Rechaza cualquier campo que sea explícitamente enviado como None, exceptuando los campos en la lista de campos permitidos.
-        Los campos que no se envíen simplemente se ignoran.
-        """
-        campos_permitidos_null = ["motivo", "recordatorio"]
-
-        for field, value in values.items():
-            if field not in campos_permitidos_null and value is None:
-                raise ValueError(f'El campo "{field}" en el schema TurnoUpdateIn no puede enviarse como null')
-
-        return values
-
-    model_config = {"from_attributes": True}
-
 class TurnoEstadoOut(BaseModel):
     id: conint(ge=1)
     estado: EstadoTurno
@@ -111,20 +90,21 @@ class DisponibilidadServicio(BaseModel):
     intervalo: conint(gt=0, multiple_of=5)
     cant_turnos_max: conint(ge=0)
 
-    @field_validator("hora_inicio", "hora_fin")
-    def validar_hora_5min(value):
+    @field_validator("hora_inicio", "hora_fin", mode="after")
+    @classmethod
+    def validar_hora_5min(cls, value: time) -> time:
         if value.minute % 5 != 0:
-            raise ValueError("HORA_MULTIPLO_5")
+            raise ValueError("La hora debe ser múltiplo de 5 minutos")
         return value
     
     @model_validator(mode="after")
-    def validar_consistencia(cls, values):
-        inicio = values.hora_inicio
-        fin = values.hora_fin
-        intervalo = values.intervalo
+    def validar_consistencia(self) -> Self:
+        inicio = self.hora_inicio
+        fin = self.hora_fin
+        intervalo = self.intervalo
 
         if fin < inicio:
-            raise ValueError("INVALID_TIME_RANGE")
+            raise ValueError("La hora final debe ser mayor o igual que la hora de inicio")
 
         # convertir a minutos
         inicio_min = inicio.hour * 60 + inicio.minute
@@ -132,9 +112,9 @@ class DisponibilidadServicio(BaseModel):
         duracion_total = fin_min - inicio_min
 
         if duracion_total % intervalo != 0:
-            raise ValueError("INVALID_TIME_RANGE_WITH_INTERVALO")
+            raise ValueError("La hora final debe coincidir exactamente con múltiplos del intervalo desde la hora de inicio")
 
-        return values
+        return self
     
     model_config = {"from_attributes": True}
 
@@ -143,7 +123,18 @@ class MiembroOut(BaseModel):
     dni: constr(regex=r"^[0-9]{6,8}$")
     apellido: constr(min_length=1, max_length=50)
     nombre: constr(min_length=1, max_length=50)
-    email: EmailStr = Field(max_length=255)
-    rol: RolEmpresa | RolSucursal
+    email: EmailStr = Field(..., max_length=255)
+
+    model_config = {"from_attributes": True}
+
+class UpdateRolIn(BaseModel):
+    nuevo_rol: RolEmpresa | RolSucursal
+    sucursal_id: conint(ge=1) | None
+
+    @model_validator(mode="after")
+    def validar_nuevo_rol(self) -> Self:
+        if isinstance(self.nuevo_rol, RolSucursal) and self.sucursal_id is None:
+            raise ValueError("Debe especificarse la sucursal del nuevo miembro")
+        return self
 
     model_config = {"from_attributes": True}
