@@ -1,11 +1,21 @@
 from datetime import datetime, timedelta, date, time
 from typing import Self
 
-from pydantic import (BaseModel, EmailStr, SecretStr, Field,
-    conint, condecimal, constr, conlist, field_validator, model_validator)
+from pydantic import BaseModel, EmailStr, SecretStr, Field, conint, condecimal, constr, conlist, field_validator, model_validator
 
-from schemas.common import (Telefono, TelefonoConID, DireccionCreate,
-    DireccionOut, DireccionUpdateIn, DisponibilidadServicio, EstadoTurno, RolEmpresa, RolSucursal)
+from schemas.common import (
+    Telefono,
+    TelefonoConID,
+    DireccionCreate,
+    DireccionOut,
+    DireccionUpdateIn,
+    ServicioOut,
+    ExcepcionFechaServicioOut,
+    NotificacionesOut,
+    EstadoTurno,
+    RolEmpresa,
+    RolSucursal,
+)
 from core.timezone import validate_aware_utc
 from core.security import validate_password
 
@@ -56,10 +66,11 @@ class TurnoUserOut(BaseModel):
     profesional_dni: constr(regex=r"^[0-9]{6,8}$") | None
     profesional_apellido: constr(min_length=1, max_length=50) | None
     profesional_nombre: constr(min_length=1, max_length=50) | None
+    created_at: datetime
     estado_turno: EstadoTurno
     recordatorio: conint(ge=0, le=1410, multiple_of=30) | None
 
-    @field_validator("fecha_hora", mode="after")
+    @field_validator("fecha_hora", "created_at", mode="after")
     @classmethod
     def validar_fecha_hora_utc(cls, value: datetime) -> datetime:
         return validate_aware_utc(value)
@@ -77,6 +88,7 @@ class UserLoginOut(BaseModel):
     direcciones: conlist(DireccionOut, min_items=1)
     favoritos: list[SucursalOut]
     turnos: list[TurnoUserOut]
+    notificaciones: NotificacionesOut
 
     model_config = {"from_attributes": True}
 
@@ -98,6 +110,9 @@ class UserUpdateIn(BaseModel):
         if not isinstance(values, dict):
             # si bien significa que el front envió cualquier cosa, lo devolvemos tal cual para que pydantic se encargue de tirar error
             return values
+        
+        if not values:
+            raise ValueError("Debe enviarse al menos un campo en el schema UserUpdateIn")
 
         campos_permitidos_null = ["recordatorio"]
 
@@ -210,9 +225,10 @@ class TurnoHistorialUser(BaseModel):
     profesional_dni: constr(regex=r"^[0-9]{6,8}$") | None
     profesional_apellido: constr(min_length=1, max_length=50) | None
     profesional_nombre: constr(min_length=1, max_length=50) | None
+    created_at: datetime
     estado_turno: EstadoTurno
 
-    @field_validator("fecha_hora", mode="after")
+    @field_validator("fecha_hora", "created_at", mode="after")
     @classmethod
     def validar_fecha_hora_utc(cls, value: datetime) -> datetime:
         return validate_aware_utc(value)
@@ -243,19 +259,18 @@ class TurnoActualDelServicio(BaseModel):
 
     model_config = {"from_attributes": True}
 
-class ServicioConTurnosOut(BaseModel):
+class ServicioUserConTurnosOut(BaseModel):
     id: conint(ge=1)
     nombre: constr(min_length=1, max_length=100)
-    duracion: conint(gt=0, multiple_of=5)
-    precio: condecimal(ge=0, max_digits=10, decimal_places=2)
     aclaracion: constr(min_length=1, max_length=255) | None
     profesional_id: conint(ge=1) | None
     profesional_dni: constr(regex=r"^[0-9]{6,8}$") | None
     profesional_apellido: constr(min_length=1, max_length=50) | None
     profesional_nombre: constr(min_length=1, max_length=50) | None
     dias_max_reserva: conint(ge=0) | None
-    disponibilidades: list[DisponibilidadServicio]
+    servicios: conlist(ServicioOut, min_items=1)
     turnos_actuales: list[TurnoActualDelServicio]
+    excepciones_fechas: list[ExcepcionFechaServicioOut]
 
     model_config = {"from_attributes": True}
 

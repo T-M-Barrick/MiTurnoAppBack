@@ -5,7 +5,14 @@ from jose import jwt
 from sqlalchemy import or_, and_, func
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from crud.common import get_empresa, get_sucursal, nuevo_estado_check, contar_turnos_superpuestos_servicio, tiene_turno_superpuesto
+from crud.common import (
+    get_empresa,
+    get_sucursal,
+    disponibilidad_cubre_turno
+    nuevo_estado_check,
+    contar_turnos_superpuestos_servicio,
+    tiene_turno_superpuesto,
+)
 from core import models, constantes, exceptions, autenticacion, auxiliares, mensajes, timezone
 from schemas import common as schemas_common
 from schemas import usuario as schemas_usuario
@@ -281,6 +288,7 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
         raise exceptions.UserBlockedBySucursalError(nombre=nombre_completo_sucursal)
 
     dia, hora = timezone.extraer_dia_y_hora_en_local(fecha_hora)
+    fecha_local = timezone.utc_to_local(fecha_hora).date()
 
     turnos_actuales_usuario = db.query(models.Turno).filter_by(
         usuario_id=usuario_id,
@@ -289,15 +297,21 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
     ).all()
 
     errores_en_servicios = []
-    servicios_posibles = [] # lista de tuplas de interos como primer elemento y objetos models.Servicio como segundo
+    servicios_posibles = [] # lista de tuplas de enteros como primer elemento y objetos models.Servicio como segundo
 
     for turno_posible in turnos_posibles:
 
         servicio = (
             db.query(models.Servicio)
+            .join(models.ServicioBase)
             .filter(
                 models.Servicio.id == turno_posible.servicio_id,
-                models.Servicio.sucursal_id == turno_posible.sucursal_id,
+                models.Servicio.vigente_desde <= fecha_local,
+                or_(
+                    models.Servicio.vigente_hasta == None,
+                    models.Servicio.vigente_hasta >= fecha_local,
+                ),
+                models.ServicioBase.sucursal_id == sucursal_id,
             )
             .first()
         )
@@ -308,14 +322,20 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
 
         servicio = (
             db.query(models.Servicio)
+            .join(models.ServicioBase)
             .join(models.Disponibilidad)
             .options(
-                joinedload(models.Servicio.profesional),
+                joinedload(models.Servicio.servicio_base).joinedload(models.ServicioBase.profesional),
                 selectinload(models.Servicio.disponibilidades),
             )
             .filter(
                 models.Servicio.id == turno_posible.servicio_id,
-                models.Servicio.sucursal_id == turno_posible.sucursal_id,
+                models.Servicio.vigente_desde <= fecha_local,
+                or_(
+                    models.Servicio.vigente_hasta == None,
+                    models.Servicio.vigente_hasta >= fecha_local,
+                ),
+                models.ServicioBase.sucursal_id == sucursal_id,
                 models.Disponibilidad.dia == dia,
                 models.Disponibilidad.hora_inicio <= hora,
                 models.Disponibilidad.hora_fin >= hora,
@@ -327,17 +347,33 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
             errores_en_servicios.append(exceptions.TurnoReservaDisponibilidadNoConfiguradaError())
             continue
         
+        excepcion_fecha_servicio = (
+            db.query(models.ExcepcionFechaServicio)
+            .filter(
+                models.ExcepcionFechaServicio.servicio_base_id == servicio.servicio_base.id,
+                models.ExcepcionFechaServicio.fecha_inicio <= fecha_local,
+                models.ExcepcionFechaServicio.fecha_fin >= fecha_local,
+            )
+            .first()
+        )
+
+        if excepcion_fecha_servicio:
+            errores_en_servicios.append(exceptions.SucursalReservaExceptionDateServiceError(motivo=excepcion_fecha_servicio.motivo))
+            continue
+        
         # Validar límite máximo de días
-        if servicio.dias_max_reserva is not None:
-            validar_turno_dias_max = timezone.validar_turno_dias_max(fecha_hora, servicio.dias_max_reserva)
+        if servicio.servicio_base.dias_max_reserva is not None:
+            validar_turno_dias_max = timezone.validar_turno_dias_max(fecha_hora, servicio.servicio_base.dias_max_reserva)
             if not validar_turno_dias_max:
-                errores_en_servicios.append(exceptions.TurnoReservaFueraDeRangoError(dias_max=servicio.dias_max_reserva))
+                errores_en_servicios.append(exceptions.TurnoReservaFueraDeRangoError(dias_max=servicio.servicio_base.dias_max_reserva))
                 continue
 
         # Validar anticipación para reserva de turno
-        validar_turno_horario = timezone.validar_turno_horario(fecha_hora, servicio.minutos_min_reserva)
+        validar_turno_horario = timezone.validar_turno_horario(fecha_hora, servicio.servicio_base.minutos_min_reserva)
         if not validar_turno_horario:
-            errores_en_servicios.append(exceptions.TurnoReservaAnticipacionInvalidError(minutos_minimos=servicio.minutos_min_reserva))
+            errores_en_servicios.append(
+                exceptions.TurnoReservaAnticipacionInvalidError(minutos_minimos=servicio.servicio_base.minutos_min_reserva)
+            )
             continue
         
         # Buscar la disponibilidad válida para este servicio
@@ -345,24 +381,9 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
 
         for d in servicio.disponibilidades:
 
-            if d.dia == dia and d.hora_inicio <= hora and d.hora_fin >= hora:
-
-                fecha_hora_local = timezone.utc_to_local(fecha_hora) # es un datetime aware local
-
-                # Generamos el datetime de la fecha y hora del inicio del rango de la disponibilidad (registro de la tabla Disponibilidad)
-                disp_inicio_local = datetime.combine(
-                    fecha_hora_local.date(),
-                    d.hora_inicio,
-                    tzinfo=fecha_hora_local.tzinfo,
-                ) # disp_inicio_local es un datetime aware local
-
-                # Calculamos los minutos de diferencia entre la hora del turno que quiere sacar el usuario y la
-                # hora del inicio del rango de la disponibilidad (registro de la tabla Disponibilidad)
-                diferencia_minutos = int((fecha_hora_local - disp_inicio_local).total_seconds() / 60)
-
-                if diferencia_minutos % d.intervalo == 0:
-                    disponibilidad_valida = d
-                    break
+            if disponibilidad_cubre_turno(d, fecha_hora):
+                disponibilidad_valida = d
+                break
 
         if not disponibilidad_valida:
             errores_en_servicios.append(exceptions.TurnoSinDisponibilidadError())
@@ -374,10 +395,10 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
             errores_en_servicios.append(exceptions.TurnoUserOverlappingAppointmentError())
             continue
         
-        if servicio.profesional_id is not None:
+        if servicio.servicio_base.profesional_id is not None:
 
             turnos_actuales_profesional = db.query(models.Turno).filter_by(
-                profesional_id=servicio.profesional_id,
+                profesional_id=servicio.servicio_base.profesional_id,
                 estado_turno_sucursal_id=1, # solo turnos confirmados cuento
             ).all()
 
@@ -386,7 +407,8 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
             if conflicto_profesional:
                 if len(turnos_posibles) == 1:
                     raise exceptions.TurnoProfesionalOverlappingAppointmentError(
-                        apellido=servicio.profesional.apellido, nombre=servicio.profesional.nombre
+                        apellido=servicio.servicio_base.profesional.apellido,
+                        nombre=servicio.servicio_base.profesional.nombre,
                     )
                 errores_en_servicios.append(exceptions.TurnoSinDisponibilidadError())
                 continue # saltamos este servicio si el profesional tiene otro turno superpuesto y no hay disponibilidad
@@ -402,22 +424,11 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
     recordatorio_fecha_hora = None
     if recordatorio_minutos_antes is not None:
         recordatorio_fecha_hora = fecha_hora - timedelta(minutes=recordatorio_minutos_antes)
-    
-    es_cliente = db.query(models.Cliente).filter_by(
-        sucursal_id=sucursal_id,
-        email=usuario.email,
-    ).first()
 
     telefonos = usuario.telefonos
 
     try:
-        indices_disponibilidades = []
-        for tupla in servicios_posibles:
-            indices_disponibilidades.append(tupla[0].id)
-        # ordenamos la lista en orden ascendente para que no se generen ciclos de bloqueo (ninguna transacción va a pasar
-        # de bloquear un registro de la tabla Disponibilidad de un id superior a uno de id inferior que ya ha
-        # bloqueado en la misma transacción)
-        indices_disponibilidades.sort()
+        indices_disponibilidades = [tupla[0].id for tupla in servicios_posibles]
 
         disponibilidades = (
             db.query(models.Disponibilidad)
@@ -429,7 +440,7 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
 
         disponibilidades_bloqueadas = {d.id: d for d in disponibilidades}
 
-        while len(servicios_posibles) > 0:
+        while servicios_posibles:
             # Se puede reservar y elegimos uno de los servicios de la lista al azar
             indice = random.randrange(len(servicios_posibles))
             tupla_elegida = servicios_posibles[indice]
@@ -437,9 +448,27 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
             disponibilidad_valida = disponibilidades_bloqueadas[tupla_elegida[0].id] # renuevo las disponibilidades (que son las mismas)
             servicio_elegido = tupla_elegida[1]
 
-            turnos_actuales_servicio = contar_turnos_superpuestos_servicio(db, sucursal_id,
-                servicio_elegido.id, fecha_hora, servicio_elegido.duracion)
+            # Vuelvo a chequear los bloqueos de fechas por si se atualizó antes del lock de las disponibilidades
+            excepcion_fecha_servicio = (
+                db.query(models.ExcepcionFechaServicio)
+                .filter(
+                    models.ExcepcionFechaServicio.servicio_base_id == servicio_elegido.servicio_base.id,
+                    models.ExcepcionFechaServicio.fecha_inicio <= fecha_local,
+                    models.ExcepcionFechaServicio.fecha_fin >= fecha_local,
+                )
+                .first()
+            )
 
+            if excepcion_fecha_servicio:
+                servicios_posibles.pop(indice)
+                errores_en_servicios.append(exceptions.SucursalReservaExceptionDateServiceError(motivo=excepcion_fecha_servicio.motivo))
+                continue
+
+            turnos_actuales_servicio = contar_turnos_superpuestos_servicio(
+                db, sucursal_id, servicio_elegido.id, fecha_hora, servicio_elegido.duracion,
+            )
+
+            # Vuelvo a contar por si se atualizó antes del lock de las disponibilidades
             if len(turnos_actuales_servicio) >= disponibilidad_valida.cant_turnos_max:
                 servicios_posibles.pop(indice)
                 errores_en_servicios.append(exceptions.TurnoSinDisponibilidadError())
@@ -454,16 +483,27 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
                 exceptions.TurnoUserOverlappingAppointmentError,
                 exceptions.TurnoReservaAnticipacionInvalidError,
                 exceptions.TurnoReservaFueraDeRangoError,
+                exceptions.SucursalReservaExceptionDateServiceError,
                 exceptions.TurnoReservaDisponibilidadNoConfiguradaError,
                 exceptions.SucursalServiceNotFoundError,
             ]
 
             for clase_error in PRIORIDAD_ERRORES:
                 mapear_error_en_reserva_turno(errores_en_servicios, clase_error)
+        
+        # Chequeo que la sucursal siga activa por si en el medio de la transacción justo se desactivó
+        db.refresh(sucursal)
+        if not sucursal.activa:
+            raise exceptions.SucursalDeactivatedError()
+        
+        cliente = db.query(models.Cliente).filter_by(
+            sucursal_id=sucursal_id,
+            email=usuario.email,
+        ).with_for_update().first()
 
-        if es_cliente:
-            if not es_cliente.activo:
-                es_cliente.activo = True
+        if cliente:
+            if not cliente.activo:
+                cliente.activo = True
         else:
             # Crear cliente
             cliente = models.Cliente(
@@ -479,17 +519,20 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
                 activo=True,
             )
             db.add(cliente)
+            db.flush()
 
         turno = models.Turno(
             usuario_id=usuario_id,
             sucursal_id=sucursal_id,
+            cliente_id=cliente.id,
             fecha_hora=timezone.to_naive_utc(fecha_hora),
             servicio_id=servicio_elegido.id,
-            nombre_de_servicio=servicio_elegido.nombre,
+            nombre_de_servicio=servicio_elegido.servicio_base.nombre,
             duracion=servicio_elegido.duracion,
             precio=servicio_elegido.precio,
-            aclaracion_de_servicio=servicio_elegido.aclaracion,
-            profesional_id=servicio_elegido.profesional_id,
+            aclaracion_de_servicio=servicio_elegido.servicio_base.aclaracion,
+            profesional_id=servicio_elegido.servicio_base.profesional_id,
+            created_at=timezone.to_naive_utc(timezone.now_utc()),
             estado_turno_usuario_id=1, # CONFIRMADO
             estado_turno_sucursal_id=1, # CONFIRMADO
             eliminado_por_usuario=False,
@@ -668,7 +711,7 @@ def get_estados_turnos(db: Session, usuario_id: int):
 # Devuelve todos los turnos que el usuario ya completó
 '''
 Así se pediría, por ejemplo, en la solicitud HTTP:
-GET /usuarios/5/turnos/historial?fecha_hora_ultima=2025-10-10T12:00:00Z&id_ultimo=1234&limit=50
+GET /usuarios/turnos/historial?fecha_hora_ultima=2025-10-10T12:00:00Z&id_ultimo=1234&limit=50
 '''
 def get_historial(db: Session, usuario_id: int,
     fecha_hora_ultima: datetime | None = None, id_ultimo: int | None = None, limit: int = 50):
@@ -727,20 +770,27 @@ def get_historial(db: Session, usuario_id: int,
 
     return historial, (ultimo_cursor_fecha_hora, ultimo_cursor_id)
 
-# Devuelve lista de sucursales por nombre y/o servicio
+# Devuelve lista de sucursales (sin duplicados) con coincidencia parcial de nombre y/o rubros
+'''
+Así se pediría, por ejemplo, en la solicitud HTTP:
+GET /usuarios/sucursales?busqueda=peluq&lat=-35.456231$lng=-45.569842
+'''
 def get_sucursales(db: Session, search: str, lat: float, lng: float):
+
+    palabra = f"%{search}%"
+
     sucursales = (
         db.query(models.Sucursal)
         .join(models.Empresa) # para poder filtrar por nombre de empresa
-        .join(models.Servicio) # hace que cargue solo las sucursales que tienen al menos un servicio asociado
+        .join(models.ServicioBase) # hace que cargue solo las sucursales que tienen al menos un servicio base asociado
         .filter(
             models.Sucursal.activa == True, # solo activas
             models.Sucursal.reserva_publica_habilitada == True, # solo las que permiten a los usuarios reservar
             or_(
-                models.Sucursal.nombre.ilike(f"%{search}%"),
-                models.Empresa.nombre.ilike(f"%{search}%"),
-                models.Empresa.rubro.ilike(f"%{search}%"),
-                models.Empresa.rubro2.ilike(f"%{search}%"),
+                models.Sucursal.nombre.ilike(palabra),
+                models.Empresa.nombre.ilike(palabra),
+                models.Empresa.rubro.ilike(palabra),
+                models.Empresa.rubro2.ilike(palabra),
             )
         )
         .options(
@@ -793,17 +843,18 @@ def get_servicios_de_sucursal(db: Session, usuario_email: str, sucursal_id: int)
     if bloqueo:
         raise exceptions.UserBlockedBySucursalError(nombre=nombre_completo_sucursal)
 
-    servicios = (
-        db.query(models.Servicio)
+    servicios_base = (
+        db.query(models.ServicioBase)
         .options(
-            selectinload(models.Servicio.disponibilidades),
-            joinedload(models.Servicio.profesional),
+            joinedload(models.ServicioBase.profesional),
+            selectinload(models.ServicioBase.servicios).selectinload(models.Servicio.disponibilidades),
+            selectinload(models.ServicioBase.excepciones_fechas),
         )
         .filter(models.Servicio.sucursal_id == sucursal_id)
         .all()
     )
 
-    if not servicios:
+    if not servicios_base:
         return ([], [])
 
     # Devuelvo los turnos de la sucursal que tiene como confirmados    
@@ -818,7 +869,7 @@ def get_servicios_de_sucursal(db: Session, usuario_email: str, sucursal_id: int)
         .all()
     )
     
-    return servicios, turnos
+    return servicios_base, turnos
 
 def add_favorito(db: Session, usuario_id: int, sucursal_id: int):
 
@@ -853,6 +904,80 @@ def delete_favorito(db: Session, usuario_id: int, sucursal_id: int):
     
     try:
         db.delete(fav)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+'''
+Así se pediría, por ejemplo, en la solicitud HTTP:
+GET /usuarios/notificaciones?leidas=false&id_ultimo=1234&limit=20
+'''
+def get_notificaciones(db: Session, usuario_id: int, leidas: bool | None = None, id_ultimo: int | None = None, limit: int = 20):
+    '''
+    Devuelve las notificaciones de un usuario con paginación.
+    Van ordenadas de la más reciente a la más antigua (fecha descendente).
+
+    Parámetros:
+        leidas: si es None, devuelve tanto las leidas como las no leidas.
+        id_ultimo: id de la última notificación recibida (para la siguiente página).
+        limit: cantidad máxima de notificaciones a devolver (máx 100).
+    
+    Proceso:
+        Primera solicitud (en login): front no envía cursor → back devuelve primeros N registros + cursor del último.
+        Siguientes solicitudes: front envía cursor → back devuelve los siguientes N registros + cursor actualizado.
+        Última página: back devuelve lista vacía y cursor None → front deja de pedir más.
+    '''
+    query = db.query(models.Notificacion).filter(
+        models.Notificacion.usuario_id == usuario_id,
+    )
+
+    # Aplicar paginación por cursor si se envió id_ultimo
+    if id_ultimo:
+        query = query.filter(
+            models.Notificacion.id < id_ultimo,
+        )
+    
+    # Filtro por leidas (IMPORTANTE usar is not None)
+    if leidas is not None:
+        query = query.filter(
+            models.Notificacion.leida == leidas,
+        )
+
+    query = query.order_by(models.Notificacion.id.desc())
+
+    limit = min(limit, 100) # no más de 100 por consulta
+
+    # notificaciones es una lista de objetos de clase Notificacion de SQLAlchemy
+    notificaciones = query.limit(limit).all()
+
+    ultimo_cursor_id = notificaciones[-1].id if notificaciones else None
+
+    return notificaciones, ultimo_cursor_id
+
+def get_notificaciones_nuevas(db: Session, usuario_id: int, id_posterior: int):
+
+    notificaciones_nuevas = db.query(models.Notificacion).filter(
+        models.Notificacion.usuario_id == usuario_id,
+        models.Notificacion.id > id_posterior,
+    ).order_by(models.Notificacion.id.desc()).all()
+
+    return notificaciones_nuevas
+
+def update_notificacion_leida(db: Session, usuario_id: int, notificacion_id: int):
+
+    try:
+        filas = db.query(models.Notificacion).filter(
+            models.Notificacion.id == notificacion_id,
+            models.Notificacion.usuario_id == usuario_id, # chequeo que el mismo usuario de la notificación sea el que hace la request
+        ).update(
+            {"leida": True},
+            synchronize_session=False
+        )
+
+        if filas == 0:
+            raise exceptions.NotificationNotFoundError()
+
         db.commit()
     except Exception:
         db.rollback()

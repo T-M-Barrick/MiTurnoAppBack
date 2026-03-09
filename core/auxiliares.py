@@ -114,51 +114,32 @@ def distancia_km(lat1, lng1, lat2, lng2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     return R * c
 
-def transformar_rol(rol: str | int, contexto: str = "global") -> int | str:
-    """
-    Traducción bidireccional con numeración dependiente del contexto.
-    """
+def get_rol_id(db: Session, nombre: str, tipo: str) -> int:
 
-    MAP = {
-        "empresa": {
-            "propietario": 1,
-            "gerente_empresa": 2,
-        },
-        "sucursal": {
-            "gerente_sucursal": 1,
-            "empleado": 2,
-        },
-        "global": {
-            "propietario": 1,
-            "gerente_empresa": 2,
-            "gerente_sucursal": 3,
-            "empleado": 4,
-        },
-    }
+    rol = (
+        db.query(models.Rol)
+        .filter_by(nombre=nombre, tipo=tipo)
+        .first()
+    )
 
-    if contexto not in MAP:
-        raise ValueError("Contexto inválido")
+    if not rol:
+        raise ValueError(f"Rol inexistente: {nombre} para tipo {tipo}")
 
-    tabla = MAP[contexto]
-
-    # string -> int
-    if isinstance(rol, str):
-        if rol not in tabla:
-            raise ValueError("String de rol inválido para este contexto")
-        return tabla[rol] # es un int
-
-    # int -> string
-    elif isinstance(rol, int):
-        for nombre, numero in tabla.items():
-            if numero == rol:
-                return nombre # es un string
-        raise ValueError("Número de rol inválido para este contexto")
-
-    else:
-        raise ValueError("Tipo de rol inválido")
+    return rol.id
 
 def rol_superior(rol1: str, rol2: str) -> bool:
-    return transformar_rol(rol1) < transformar_rol(rol2)
+
+    JERARQUIA = {
+        "PROPIETARIO": 100,
+        "GERENTE_EMPRESA": 80,
+        "GERENTE_SUCURSAL": 40,
+        "EMPLEADO": 20,
+    }
+
+    try:
+        return JERARQUIA[rol1] > JERARQUIA[rol2]
+    except KeyError as e:
+        raise ValueError(f"Rol inválido: {e.args[0]}")
 
 def validar_logo(logo_bytes: bytes):
 

@@ -4,8 +4,14 @@ import requests
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 
-from core.config import (FRONTEND_URL, FRONT_VERIFICACTION_EMAIL_PATH,
-    FRONT_INVITE_EMAIL_PATH, FRONT_RESET_EMAIL_PATH, EMAIL, SERVER_API_KEY_BREVO)
+from core.config import (
+    FRONTEND_URL,
+    FRONT_VERIFICACTION_EMAIL_PATH,
+    FRONT_INVITE_EMAIL_PATH,
+    FRONT_RESET_EMAIL_PATH,
+    EMAIL,
+    SERVER_API_KEY_BREVO,
+)
 from core.logger import logger
 from core import exceptions, timezone
 

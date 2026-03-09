@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from core.database import SessionLocal
@@ -37,48 +36,55 @@ def formatear_fecha_hora_turno(fecha_hora_turno_aware_utc: datetime, ahora_aware
 def enviar_recordatorios():
     db = SessionLocal()
 
+    ahora_aware_utc = timezone.now_utc() # aware UTC
+    ahora_naive_utc = timezone.to_naive_utc(ahora_aware_utc) # naive UTC (DB)
+
     try:
-        ahora_aware_utc = timezone.now_utc() # aware UTC
-        ahora_naive_utc = timezone.to_naive_utc(ahora_aware_utc) # naive UTC (DB)
-
-        # Buscar turnos cuyo recordatorio debe enviarse AHORA
-        turnos = (
-            db.query(models.Turno)
-            .options(
-                joinedload(models.Turno.usuario).selectinload(models.Usuario.telefonos),
-                joinedload(models.Turno.sucursal).joinedload(models.Sucursal.empresa),
-            )
-            .filter(
-                models.Turno.recordatorio_fecha_hora != None,
-                models.Turno.recordatorio_fecha_hora <= ahora_naive_utc,
-                models.Turno.recordatorio_enviado == False,
-                models.Turno.estado_turno_usuario_id == 1, # esto evita enviar recordatorios de turnos cancelados
-                models.Turno.eliminado_por_usuario == False,
-                models.Turno.fecha_hora > ahora_naive_utc,
-            )
-            # Con with_for_update(skip_locked=True) las filas seleccionadas quedan bloqueadas y
-            # si otro worker ya las bloqueó, las salta y así evito enviar el mismo SMS dos veces en paralelo
-            .with_for_update(skip_locked=True)
-            .all()
-        )
-
-        for turno in turnos:
-
-            fecha_turno_aware_utc = timezone.ensure_utc(turno.fecha_hora)
-
-            telefono = turno.usuario.telefonos[0].numero # o el que corresponda
-            nombre_sucursal = auxiliares.nombre_empresa(turno.sucursal.empresa.nombre, turno.sucursal.nombre)
-            cuando = formatear_fecha_hora_turno(fecha_turno_aware_utc, ahora_aware_utc)
-
+        while True:
+            # Buscar turnos cuyo recordatorio debe enviarse AHORA
             try:
+                turno = (
+                    db.query(models.Turno)
+                    .options(
+                        joinedload(models.Turno.usuario).selectinload(models.Usuario.telefonos),
+                        joinedload(models.Turno.sucursal).joinedload(models.Sucursal.empresa),
+                    )
+                    .filter(
+                        models.Turno.recordatorio_fecha_hora != None,
+                        models.Turno.recordatorio_fecha_hora <= ahora_naive_utc,
+                        models.Turno.recordatorio_enviado == False,
+                        models.Turno.estado_turno_usuario_id == 1, # esto evita enviar recordatorios de turnos cancelados
+                        models.Turno.eliminado_por_usuario == False,
+                        models.Turno.fecha_hora > ahora_naive_utc,
+                    )
+                    # Con with_for_update(skip_locked=True) las filas seleccionadas quedan bloqueadas y
+                    # si otro worker ya las bloqueó, las salta y así evito enviar el mismo SMS dos veces en paralelo
+                    .with_for_update(skip_locked=True)
+                    .first()
+                )
+
+                if not turno:
+                    break
+
+                fecha_turno_aware_utc = timezone.ensure_utc(turno.fecha_hora)
+
+                if not turno.usuario.telefonos:
+                    db.commit()
+                    continue
+
+                telefono = turno.usuario.telefonos[0].numero # o el que corresponda
+                nombre_sucursal = auxiliares.nombre_empresa(turno.sucursal.empresa.nombre, turno.sucursal.nombre)
+                cuando = formatear_fecha_hora_turno(fecha_turno_aware_utc, ahora_aware_utc)
+
                 resultado = mensajes.enviar_sms(telefono, f'Recordatorio: tenés un turno en {nombre_sucursal} para {cuando}')
 
                 if resultado:
                     turno.recordatorio_enviado = True
-                    db.commit()
 
-            except Exception as e:
+                db.commit()
+            except Exception:
                 db.rollback()
+
     finally:
         db.close()
 

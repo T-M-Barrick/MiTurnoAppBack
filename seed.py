@@ -22,19 +22,20 @@ def seed_estados_turno(db: Session):
 
 def seed_roles(db: Session):
     roles = [
-        "PROPIETARIO",
-        "GERENTE_EMPRESA",
-        "GERENTE_SUCURSAL",
-        "EMPLEADO",
+        ("PROPIETARIO", "EMPRESA"),
+        ("GERENTE_EMPRESA", "EMPRESA"),
+        ("GERENTE_SUCURSAL", "SUCURSAL"),
+        ("EMPLEADO", "SUCURSAL"),
     ]
 
     existentes = {
-        r.nombre for r in db.query(models.Rol).all()
+        (r.nombre, r.tipo)
+        for r in db.query(models.Rol).all()
     }
 
-    for rol in roles:
-        if rol not in existentes:
-            db.add(models.Rol(nombre=rol))
+    for nombre, tipo in roles:
+        if (nombre, tipo) not in existentes:
+            db.add(models.Rol(nombre=nombre, tipo=tipo))
 
 def run_seeds(db: Session):
     seed_estados_turno(db)

@@ -67,8 +67,10 @@ def me(
     el navegador ya tiene la cookie y así el usuario no tiene que poner de vuelta la contraseña y el email.
     '''
     turnos = crud_usuario.get_turnos(db, current_user.id)
+
+    notificaciones, ultimo_cursor_id = crud_usuario.get_notificaciones(db, current_user.id)
     
-    us = mappers_usuario.user_login_out(current_user, turnos)
+    us = mappers_usuario.user_login_out(current_user, turnos, notificaciones, ultimo_cursor_id)
 
     return us
 
@@ -86,7 +88,7 @@ def update_usuario(
 
     return us
 
-@router.get("/mis_empresas", response_model=schemas_usuario.MisEmpresasOut, status_code=200)
+@router.get("/mis-empresas", response_model=schemas_usuario.MisEmpresasOut, status_code=200)
 def get_roles(
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
@@ -97,6 +99,7 @@ def get_roles(
         db.query(models.Miembro_Empresa)
         .options(
             joinedload(models.Miembro_Empresa.empresa),
+            joinedload(models.Miembro_Empresa.rol),
         )
         .filter_by(usuario_id=current_user.id)
         .all()
@@ -109,6 +112,7 @@ def get_roles(
         .options(
             joinedload(models.Miembro_Sucursal.sucursal).joinedload(models.Sucursal.empresa),
             joinedload(models.Miembro_Sucursal.sucursal).joinedload(models.Sucursal.direccion),
+            joinedload(models.Miembro_Sucursal.rol),
         )
         .filter(
             models.Miembro_Sucursal.usuario_id == current_user.id,
@@ -216,7 +220,6 @@ def get_historial_usuario(
     return respuesta
 
 # Devuelve lista de sucursales (sin duplicados) con coincidencia parcial de nombre y/o rubros
-# haciendo, por ejemplo, GET /usuarios/sucursales?busqueda=peluq
 @router.get("/sucursales", response_model=list[schemas_usuario.SucursalOut], status_code=200)
 def get_sucursales(
     search: str = Query(..., min_length=3, alias="busqueda"),
@@ -233,7 +236,7 @@ def get_sucursales(
     return resultados
 
 # Se envía al hacer click en la sucursal
-@router.get("/sucursales/{sucursal_id}/servicios", response_model=list[schemas_usuario.ServicioConTurnosOut], status_code=200)
+@router.get("/sucursales/{sucursal_id}/servicios", response_model=list[schemas_usuario.ServicioUserConTurnosOut], status_code=200)
 def get_servicios_de_sucursal(
     sucursal_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
@@ -242,7 +245,7 @@ def get_servicios_de_sucursal(
 
     servicios, turnos = crud_usuario.get_servicios_de_sucursal(db, current_user.email, sucursal_id)
 
-    servicios_out = mappers_usuario.servicio_con_turnos_out(servicios, turnos)
+    servicios_out = mappers_usuario.list_servicio_user_con_turnos_out(servicios, turnos)
 
     return servicios_out
 
@@ -267,3 +270,48 @@ def delete_favorito(
 ):
 
     crud_usuario.delete_favorito(db, current_user.id, sucursal_id)
+
+@router.get("/notificaciones", response_model=schemas_common.NotificacionesOut, status_code=200)
+def get_notificaciones_usuario(
+    leidas: bool | None = Query(default=None),
+    id_ultimo: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=20, ge=1, le=100, alias="limite"),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    id_ultimo = id_ultimo if id_ultimo else 2**31 - 1 # valor grande si no viene
+
+    notificaciones, ultimo_cursor_id = crud_usuario.get_notificaciones(
+        db,
+        current_user.id,
+        leidas=leidas,
+        id_ultimo=id_ultimo,
+        limit=limit,
+    )
+    
+    respuesta = mappers_common.notificaciones_out(notificaciones, ultimo_cursor_id)
+    
+    return respuesta
+
+# Cada 5 minutos el front pregunta por las notificaciones
+@router.get("/notificaciones/nuevas", response_model=list[schemas_common.NotificacionOut], status_code=200)
+def get_notificaciones_nuevas_usuario(
+    id_posterior: int = Query(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    notificaciones = crud_usuario.get_notificaciones_nuevas(db, current_user.id, id_posterior)
+
+    notificaciones_out = [mappers_common.notificacion_out(notif) for notif in notificaciones]
+    
+    return notificaciones_out
+
+@router.patch("/notificaciones/{notificacion_id}/leida", status_code=204)
+def update_notificacion_leida_usuario(
+    notificacion_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(...),
+    db: Session = Depends(get_db),
+):
+    crud_usuario.update_notificacion_leida(db, current_user.id, notificacion_id)

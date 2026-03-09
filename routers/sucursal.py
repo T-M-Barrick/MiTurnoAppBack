@@ -33,8 +33,10 @@ def acceder_sucursal(
 ):
 
     sucursal, current_user_rol = crud_sucursal.acceder(db, sucursal_id, current_user.id)
+
+    notificaciones, ultimo_cursor_id = crud_sucursal.get_notificaciones(db, sucursal_id, current_user.id)
     
-    suc = mappers_sucursal.sucursal_home_out(sucursal, current_user_rol)
+    suc = mappers_sucursal.sucursal_home_out(sucursal, notificaciones, ultimo_cursor_id, current_user_rol)
 
     return suc
 
@@ -272,29 +274,29 @@ def get_servicios_sucursal(
     return servicios_out
 
 @router.post("/{sucursal_id}/servicios", response_model=schemas_sucursal.ServicioSucursalOut, status_code=201)
-def create_servicio_sucursal(
-    servicio_nuevo: schemas_sucursal.ServicioCreate,
+def create_servicio_base_sucursal(
+    servicio_nuevo: schemas_sucursal.ServicioBaseCreate,
     sucursal_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
 ):
 
-    servicio = crud_sucursal.create_servicio(db, sucursal_id, current_user.id, servicio_nuevo)
+    servicio = crud_sucursal.create_servicio_base(db, sucursal_id, current_user.id, servicio_nuevo)
     
     servicio_out = mappers_sucursal.servicio_sucursal_out(servicio)
 
     return servicio_out
 
-@router.patch("/{sucursal_id}/servicios/{servicio_id}", response_model=schemas_sucursal.ServicioSucursalOut, status_code=200)
-def update_servicio_sucursal(
-    servicio_update: schemas_sucursal.ServicioUpdateIn,
+@router.patch("/{sucursal_id}/servicios/{servicio_base_id}", response_model=schemas_sucursal.ServicioSucursalOut, status_code=200)
+def update_servicio_base_sucursal(
+    servicio_update: schemas_sucursal.ServicioBaseUpdateIn,
     sucursal_id: int = Path(..., ge=1),
-    servicio_id: int = Path(..., ge=1),
+    servicio_base_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
 ):
 
-    servicio = crud_sucursal.update_servicio(db, sucursal_id, servicio_id, current_user.id, servicio_update)
+    servicio = crud_sucursal.update_servicio_base(db, sucursal_id, current_user.id, servicio_base_id, servicio_update)
     
     servicio_out = mappers_sucursal.servicio_sucursal_out(servicio)
 
@@ -305,14 +307,103 @@ def update_servicio_sucursal(
 # else:
 #     return {"message": "Servicios eliminados con éxito"}
 @router.delete("/{sucursal_id}/servicios", status_code=204)
-def delete_servicios_sucursal(
-    servicios_delete: schemas_sucursal.ServiciosDeleteIn,
+def delete_servicios_base_sucursal(
+    servicios_base_delete: schemas_sucursal.ServiciosBaseDeleteIn,
     sucursal_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
 ):
 
-    crud_sucursal.delete_servicios(db, sucursal_id, current_user.id, servicios_delete.servicios)
+    crud_sucursal.delete_servicios_base(db, sucursal_id, current_user.id, servicios_base_delete.servicios_base)
+
+@router.post("/{sucursal_id}/servicios/{servicio_base_id}/versiones", response_model=schemas_sucursal.ServicioSucursalOut, status_code=201)
+def create_servicio_version_sucursal(
+    servicio_nuevo: schemas_sucursal.ServicioCreate,
+    sucursal_id: int = Path(..., ge=1),
+    servicio_base_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    servicio = crud_sucursal.create_servicio_version(db, sucursal_id, current_user.id, servicio_base_id, servicio_nuevo)
+    
+    servicio_out = mappers_sucursal.servicio_sucursal_out(servicio)
+
+    return servicio_out
+
+@router.patch("/{sucursal_id}/servicios/{servicio_base_id}/versiones/{servicio_id}",
+    response_model=schemas_common.ServicioOut, status_code=200)
+def update_servicio_version_sucursal(
+    servicio_update: schemas_sucursal.ServicioUpdateIn,
+    sucursal_id: int = Path(..., ge=1),
+    servicio_base_id: int = Path(..., ge=1),
+    servicio_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    servicio = crud_sucursal.update_servicio_version(db, sucursal_id, current_user.id, servicio_base_id, servicio_id, servicio_update)
+    
+    servicio_out = mappers_common.servicio_out(servicio)
+
+    return servicio_out
+
+@router.delete("/{sucursal_id}/servicios/{servicio_base_id}/versiones/{servicio_id}", status_code=204)
+def delete_servicio_version_sucursal(
+    sucursal_id: int = Path(..., ge=1),
+    servicio_base_id: int = Path(..., ge=1),
+    servicio_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    crud_sucursal.delete_servicio_version(db, sucursal_id, current_user.id, servicio_base_id, servicio_id)
+
+@router.post("/{sucursal_id}/servicios/{servicio_base_id}/excepcion",
+    response_model=schemas_common.ExcepcionFechaServicioOut, status_code=201)
+def create_excepcion_fecha_servicio_sucursal(
+    excepcion_nueva: schemas_sucursal.ExcepcionFechaServicioCreate,
+    sucursal_id: int = Path(..., ge=1),
+    servicio_base_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    excepcion = crud_sucursal.create_excepcion_fecha_servicio(db, sucursal_id, current_user.id, servicio_base_id, excepcion_nueva)
+    
+    excepcion_out = mappers_common.excepcion_fecha_servicio_out(excepcion)
+
+    return excepcion_out
+
+@router.patch("/{sucursal_id}/servicios/{servicio_base_id}/excepcion/{excepcion_id}",
+    response_model=schemas_common.ExcepcionFechaServicioOut, status_code=200)
+def update_excepcion_fecha_servicio_sucursal(
+    excepcion_update: schemas_sucursal.ExcepcionFechaServicioUpdateIn,
+    sucursal_id: int = Path(..., ge=1),
+    servicio_base_id: int = Path(..., ge=1),
+    excepcion_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    excepcion = crud_sucursal.update_excepcion_fecha_servicio(
+        db, sucursal_id, current_user.id, servicio_base_id, excepcion_id, excepcion_update,
+    )
+    
+    excepcion_out = mappers_common.excepcion_fecha_servicio_out(excepcion)
+
+    return excepcion_out
+
+@router.delete("/{sucursal_id}/servicios/{servicio_base_id}/excepcion/{excepcion_id}", status_code=204)
+def delete_excepcion_fecha_servicio_sucursal(
+    sucursal_id: int = Path(..., ge=1),
+    servicio_base_id: int = Path(..., ge=1),
+    excepcion_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    crud_sucursal.delete_excepcion_fecha_servicio(db, sucursal_id, current_user.id, servicio_base_id, excepcion_id)
 
 @router.get("/{sucursal_id}/miembros", response_model=list[schemas_sucursal.MiembroSucursalOut], status_code=200)
 def get_miembros_sucursal(
@@ -338,6 +429,7 @@ def leave_sucursal(
 
 # "message": f"Rol de {apellido}, {nombre} añadido a la sucursal con éxito"
 # endpoint para agregar a un miembro ya de una sucursal de una empresa a otra sucursal de la misma empresa sin borrarlo de ninguna otra sucursal
+# Solo lo pueden hacer los propietarios o gerentes generales
 @router.post("/{sucursal_id}/miembros/{target_id}",
     response_model=schemas_empresa.MiembrosEmpresaOut,
     status_code=200) # target_id es el id del miembro como usuario en la tabla usuario
@@ -357,6 +449,7 @@ def add_miembro_sucursal(
     return miembro_out
 
 # "message": f"Rol de {apellido}, {nombre} modificado a {nuevo_rol}"
+# Solo lo pueden hacer los propietarios o gerentes generales
 @router.patch("/{sucursal_id}/miembros/{target_id}",
     response_model=schemas_empresa.MiembrosEmpresaOut,
     status_code=200) # target_id es el id del miembro como usuario en la tabla usuario
@@ -425,3 +518,52 @@ def unlock_cliente_sucursal(
 ):
 
     crud_sucursal.unlock_cliente(db, sucursal_id, current_user.id, cliente_id)
+
+@router.get("/{sucursal_id}/notificaciones", response_model=schemas_common.NotificacionesOut, status_code=200)
+def get_notificaciones_sucursal(
+    sucursal_id: int = Path(..., ge=1),
+    leidas: bool | None = Query(default=None),
+    id_ultimo: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=20, ge=1, le=100, alias="limite"),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    id_ultimo = id_ultimo if id_ultimo else 2**31 - 1 # valor grande si no viene
+
+    notificaciones, ultimo_cursor_id = crud_sucursal.get_notificaciones(
+        db,
+        sucursal_id,
+        current_user.id,
+        leidas=leidas,
+        id_ultimo=id_ultimo,
+        limit=limit,
+    )
+    
+    respuesta = mappers_common.notificaciones_out(notificaciones, ultimo_cursor_id)
+    
+    return respuesta
+
+# Cada 5 minutos el front pregunta por las notificaciones
+@router.get("/{sucursal_id}/notificaciones/nuevas", response_model=list[schemas_common.NotificacionOut], status_code=200)
+def get_notificaciones_nuevas_sucursal(
+    sucursal_id: int = Path(..., ge=1),
+    id_posterior: int = Query(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    notificaciones = crud_sucursal.get_notificaciones_nuevas(db, sucursal_id, current_user.id, id_posterior)
+
+    notificaciones_out = [mappers_common.notificacion_out(notif) for notif in notificaciones]
+    
+    return notificaciones_out
+
+@router.patch("/{sucursal_id}/notificaciones/{notificacion_id}/leida", status_code=204)
+def update_notificacion_leida_sucursal(
+    sucursal_id: int = Path(..., ge=1),
+    notificacion_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(...),
+    db: Session = Depends(get_db),
+):
+    crud_sucursal.update_notificacion_leida(db, sucursal_id, current_user.id, notificacion_id)

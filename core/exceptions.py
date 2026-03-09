@@ -92,9 +92,9 @@ class EmpresaInvalidSelfRemovalError(EmpresaError):
     code = "EMPRESA_INVALID_SELF_REMOVAL"
     default_message = "No se puede abandonar como miembro a una empresa desde este flujo"
 
-class EmpresaMiembroDeleteConTurnosConfirmadosError(EmpresaError):
+class EmpresaMiembroDeleteWithTurnosConfirmadosError(EmpresaError):
     status_code = 409
-    code = "EMPRESA_MIEMBRO_DELETE_CON_TURNOS_CONFIRMADOS"
+    code = "EMPRESA_MIEMBRO_DELETE_WITH_TURNOS_CONFIRMADOS"
     default_message = "Los miembros de una empresa no pueden ser eliminados si poseen aún turnos confirmados como profesional"
 
 class EmpresaPermissionDeniedError(EmpresaError):
@@ -113,22 +113,6 @@ class EmpresaAccessResourcesForbiddenError(EmpresaPermissionDeniedError):
 class EmpresaUpdatedByEmpleadoError(EmpresaPermissionDeniedError):
     code = "EMPRESA_UPDATED_BY_EMPLEADO"
     default_message = "Los empleados no pueden modificar datos de la empresa"
-
-class EmpresaServiceViewedByEmpleadoError(EmpresaPermissionDeniedError):
-    code = "EMPRESA_SERVICE_VIEWED_BY_EMPLEADO"
-    default_message = "Los empleados no pueden visualizar los servicios"
-
-class EmpresaServiceCreatedByEmpleadoError(EmpresaPermissionDeniedError):
-    code = "EMPRESA_SERVICE_CREATED_BY_EMPLEADO"
-    default_message = "Los empleados no pueden crear servicios"
-
-class EmpresaServiceUpdatedByEmpleadoError(EmpresaPermissionDeniedError):
-    code = "EMPRESA_SERVICE_UPDATED_BY_EMPLEADO"
-    default_message = "Los empleados no pueden modificar servicios"
-
-class EmpresaServiceDeletedByEmpleadoError(EmpresaPermissionDeniedError):
-    code = "EMPRESA_SERVICE_DELETED_BY_EMPLEADO"
-    default_message = "Los empleados no pueden eliminar servicios"
 
 class EmpresaMiembrosViewedByEmpleadoError(EmpresaPermissionDeniedError):
     code = "EMPRESA_MIEMBROS_VIEWED_BY_EMPLEADO"
@@ -177,10 +161,20 @@ class SucursalReservaPublicaInhabilitadaError(SucursalError):
     code = "SUCURSAL_RESERVA_PUBLICA_INHABILITADA"
     default_message = "{nombre} no permite reserva de turnos por parte de los usuarios"
 
+class SucursalReservaExceptionDateServiceError(SucursalError):
+    status_code = 409
+    code = "SUCURSAL_RESERVA_EXCEPTION_DATE_SERVICE"
+    default_message = "La reserva para este servicio en esta fecha se encuentra inhabilitada por: {motivo}"
+
 class SucursalClienteBlockedError(SucursalError):
     status_code = 403
     code = "SUCURSAL_CLIENTE_BLOCKED"
     default_message = "Este cliente se encuentra bloqueado"
+
+class SucursalDeactivateWithTurnosConfirmadosError(SucursalError):
+    status_code = 409
+    code = "SUCURSAL_DEACTIVATE_WITH_TURNOS_CONFIRMADOS"
+    default_message = "No se puede desactivar una sucursal que posee turnos confirmados"
 
 class SucursalDeactivatedError(SucursalError):
     status_code = 404
@@ -197,56 +191,107 @@ class SucursalMiembroAlreadyExistsError(SucursalError):
     code = "SUCURSAL_MIEMBRO_ALREADY_EXISTS"
     default_message = "El usuario ya es miembro de la sucursal"
 
-class SucursalServiceNotFoundError(SucursalError):
+class SucursalServiceError(SucursalError):
+    status_code = 400
+    code = "SUCURSAL_SERVICE"
+    default_message = "Error de servicio"
+
+class SucursalServiceNotFoundError(SucursalServiceError):
     status_code = 404
     code = "SUCURSAL_SERVICE_NOT_FOUND"
     default_message = "Servicio no encontrado"
 
-class SucursalServiceDuplicatedError(SucursalError):
+class SucursalServiceAlreadyExistsError(SucursalServiceError):
     status_code = 409
-    code = "SUCURSAL_SERVICE_DUPLICATED"
-    default_message = "No puede haber dos servicios con el mismo nombre y profesional (o sin profesional) para la misma sucursal de empresa"
+    code = "SUCURSAL_SERVICE_ALREADY_EXISTS"
+    default_message = "Ya existe un servicio con ese mismo nombre y profesional (o sin profesional)"
 
-class SucursalServiceDisponibilidadSuperpuestaError(SucursalError):
+class SucursalServiceRangosFechasError(SucursalServiceError):
+    status_code = 409
+    code = "SUCURSAL_SERVICE_RANGOS_FECHAS"
+    default_message = "Un servicio debe tener exactamente uno o dos rangos de fechas de vigencia activos"
+
+class SucursalServicePosteriorFechaInicioVigenciaError(SucursalServiceError):
+    status_code = 409
+    code = "SUCURSAL_SERVICE_POSTERIOR_FECHA_INICIO_VIGENCIA"
+    default_message = "La nueva fecha de inicio del nuevo rango debe ser posterior a la fecha de inicio del rango actual"
+
+class SucursalServiceSuperpuestoError(SucursalServiceError):
+    status_code = 409
+    code = "SUCURSAL_SERVICE_SUPERPUESTO"
+    default_message = "Los rangos de fechas de vigencia de un mismo servicio no pueden superponerese"
+
+class SucursalServiceDisponibilidadSuperpuestaError(SucursalServiceError):
     status_code = 409
     code = "SUCURSAL_SERVICE_DISPONIBILIDAD_SUPERPUESTA"
     default_message = "Las disponibilidades de un mismo servicio no pueden superponerse en los horarios"
 
-class SucursalServiceUpdateDisponibilidadWithTurnosExistentesError(SucursalError):
+class SucursalServiceUpdateDisponibilidadWithTurnosExistentesError(SucursalServiceError):
     status_code = 409
     code = "SUCURSAL_SERVICE_UPDATE_DISPONIBILIDAD_WITH_TURNOS_EXISTENTES"
     default_message = (
         "La disponibilidad del día {dia} que cubre los turnos de las {hora} hs "
-        "no puede pasar a tener un máximo de {cant_max} turnos posibles en el mismo horario "
-        "debido a que en este momento posee {cant_actual} turnos confirmados para esta misma hora"
+        "no puede pasar a tener un máximo de {cant_turnos_max} turnos posibles en el mismo horario "
+        "debido a que en este momento posee {cant_turnos_actual} turnos confirmados para esta misma hora "
+        "en el día de fecha {fecha}"
     )
 
-class SucursalServiceDeleteDisponibilidadWithTurnosExistentesError(SucursalError):
+class SucursalServiceUpdateVigenciaWithTurnosExistentesError(SucursalServiceError):
+    status_code = 409
+    code = "SUCURSAL_SERVICE_UPDATE_VIGENCIA_WITH_TURNOS_EXISTENTES"
+    default_message = (
+        "Las fechas de vigencia del nuevo servicio no pueden reducirse a este nuevo rango de fechas, debido a que en este momento "
+        "posee {cant_turnos_actual} turnos confirmados que quedarían fuera"
+    )
+
+class SucursalServiceDeleteDisponibilidadWithTurnosExistentesError(SucursalServiceError):
     status_code = 409
     code = "SUCURSAL_SERVICE_DELETE_DISPONIBILIDAD_WITH_TURNOS_EXISTENTES"
     default_message = (
         "La disponibilidad del día {dia} que cubre los turnos de las {hora} hs "
-        "no puede eliminarse debido a que en este momento posee {cant_actual} turnos confirmados para esta misma hora"
+        "no puede eliminarse, debido a que en este momento posee {cant_turnos_actual} turnos confirmados para esta misma hora "
+        "en el día de fecha {fecha}"
     )
 
-class SucursalDeactivateConTurnosConfirmadosError(SucursalError):
+class SucursalServiceDeleteWithTurnosConfirmadosError(SucursalServiceError):
     status_code = 409
-    code = "SUCURSAL_DEACTIVATE_CON_TURNOS_CONFIRMADOS"
-    default_message = "No se puede desactivar una sucursal que posee turnos confirmados"
+    code = "SUCURSAL_SERVICE_DELETE_WITH_TURNOS_CONFIRMADOS"
+    default_message = "No se puede eliminar un servicio o un rango de fechas de vigencia de un servicio que posee turnos confirmados"
 
-class SucursalServiceConTurnosConfirmadosError(SucursalError):
+class SucursalExceptionDateServiceError(SucursalError):
+    status_code = 400
+    code = "SUCURSAL_EXCEPTION_DATE_SERVICE"
+    default_message = "Error de bloqueos de fechas de un servicio"
+
+class SucursalExceptionDateServiceNotFoundError(SucursalExceptionDateServiceError):
+    status_code = 404
+    code = "SUCURSAL_EXCEPTION_DATE_SERVICE_NOT_FOUND"
+    default_message = "Bloqueo de fechas del servicio no encontrado"
+
+class SucursalExceptionDateServiceSuperpuestaError(SucursalExceptionDateServiceError):
     status_code = 409
-    code = "SUCURSAL_SERVICE_CON_TURNOS_CONFIRMADOS"
-    default_message = "No se puede eliminar un servicio que posee turnos confirmados"
+    code = "SUCURSAL_EXCEPTION_DATE_SERVICE_SUPERPUESTA"
+    default_message = "Los distintos bloqueos de fechas para un mismo servicio no pueden superponerse en los rangos de fechas de vigencia"
+
+class SucursalExceptionDateServiceCreateWithTurnosExistentesError(SucursalExceptionDateServiceError):
+    status_code = 409
+    code = "SUCURSAL_EXCEPTION_DATE_SERVICE_CREATE_WITH_TURNOS_CONFIRMADOS"
+    default_message = "No se puede bloquear fechas de un servicio que poseen turnos confirmados"
+
+class SucursalExceptionDateServiceUpdateWithTurnosExistentesError(SucursalExceptionDateServiceError):
+    status_code = 409
+    code = "SUCURSAL_EXCEPTION_DATE_SERVICE_UPDATE_WITH_TURNOS_CONFIRMADOS"
+    default_message = "No se puede modificar bloqueos de fechas de un servicio que poseen turnos confirmados"
+    default_message = "No se puede extender el rango de fechas de vigencia para el actual bloqueo debido a que incluiría turnos confirmados"
 
 class SucursalProfesionalConTurnosConfirmadosOutError(SucursalError):
     status_code = 409
     code = "SUCURSAL_PROFESIONAL_CON_TURNOS_CONFIRMADOS_OUT"
     default_message = "No se puede dejar una sucursal que tiene turnos confirmados con vos como profesional"
 
-class SucursalMiembroDeleteConTurnosConfirmadosError(SucursalError):
+class SucursalMiembroDeleteWithTurnosConfirmadosError(SucursalError):
     status_code = 409
-    code = "SUCURSAL_MIEMBRO_DELETE_CON_TURNOS_CONFIRMADOS"
+    code = "SUCURSAL_MIEMBRO_DELETE_WITH_TURNOS_CONFIRMADOS"
     default_message = "Los miembros de una sucursal no pueden ser eliminados si poseen aún turnos confirmados como profesional"
 
 class SucursalMiembroAddError(SucursalError):
@@ -288,6 +333,34 @@ class SucursalActivateForbiddenError(SucursalPermissionDeniedError):
     code = "SUCURSAL_ACTIVATE_FORBIDDEN"
     default_message = "Solamente el propietario de la sucursal puede reactivarla"
 
+class SucursalServiceViewedByEmpleadoError(SucursalPermissionDeniedError):
+    code = "SUCURSAL_SERVICE_VIEWED_BY_EMPLEADO"
+    default_message = "Los empleados no pueden visualizar los servicios"
+
+class SucursalServiceCreatedByEmpleadoError(SucursalPermissionDeniedError):
+    code = "SUCURSAL_SERVICE_CREATED_BY_EMPLEADO"
+    default_message = "Los empleados no pueden crear servicios"
+
+class SucursalServiceUpdatedByEmpleadoError(SucursalPermissionDeniedError):
+    code = "SUCURSAL_SERVICE_UPDATED_BY_EMPLEADO"
+    default_message = "Los empleados no pueden modificar servicios"
+
+class SucursalServiceDeletedByEmpleadoError(SucursalPermissionDeniedError):
+    code = "SUCURSAL_SERVICE_DELETED_BY_EMPLEADO"
+    default_message = "Los empleados no pueden eliminar servicios"
+
+class SucursalExceptionDateServiceCreatedByEmpleadoError(SucursalPermissionDeniedError):
+    code = "SUCURSAL_EXCEPTION_DATE_SERVICE_CREATED_BY_EMPLEADO"
+    default_message = "Los empleados no pueden bloquear fechas de un servicio"
+
+class SucursalExceptionDateServiceUpdatedByEmpleadoError(SucursalPermissionDeniedError):
+    code = "SUCURSAL_EXCEPTION_DATE_SERVICE_UPDATED_BY_EMPLEADO"
+    default_message = "Los empleados no pueden modificar bloqueos de fechas de un servicio"
+
+class SucursalExceptionDateServiceDeletedByEmpleadoError(SucursalPermissionDeniedError):
+    code = "SUCURSAL_EXCEPTION_DATE_SERVICE_DELETED_BY_EMPLEADO"
+    default_message = "Los empleados no pueden eliminar bloqueos de fechas de un servicio"
+
 class SucursalRolAssignedByEmpleadoError(SucursalPermissionDeniedError):
     code = "SUCURSAL_ROL_ASSIGNED_BY_EMPLEADO"
     default_message = "Los empleados no pueden asignar roles"
@@ -317,9 +390,9 @@ class ClienteAlreadyExistsError(ClienteError):
     code = "CLIENTE_ALREADY_EXISTS"
     default_message = "Ya existe un cliente registrado con ese correo electrónico en esta sucursal"
 
-class ClienteDeactivateConTurnosConfirmadosError(ClienteError):
+class ClienteDeactivateWithTurnosConfirmadosError(ClienteError):
     status_code = 409
-    code = "CLIENTE_DEACTIVATE_CON_TURNOS_CONFIRMADOS"
+    code = "CLIENTE_DEACTIVATE_WITH_TURNOS_CONFIRMADOS"
     default_message = "No se puede desactivar a un cliente que posee turnos confirmados"
 
 # ------------------ Domain Rol Errores ------------------ #
@@ -476,6 +549,13 @@ class InvitationError(DomainError):
 class InvitationTokenInvalidExpiredError(InvitationError):
     code = "INVITATION_TOKEN_INVALID_EXPIRED"
     default_message = "Token inválido o expirado"
+
+# ------------------ Domain Notification Errores ------------------ #
+
+class NotificationNotFoundError(DomainError):
+    status_code = 404
+    code = "NOTIFICACION_NOT_FOUND"
+    default_message = "Notificación no encontrada"
 
 # ------------------ Domain Email Errores ------------------ #
 

@@ -71,9 +71,6 @@ def get_current_user(token: str = Cookie(default=None, # token: str = Cookie() l
             selectinload(models.Usuario.favoritos).selectinload(models.Sucursal.telefonos),
             selectinload(models.Usuario.favoritos).joinedload(models.Sucursal.direccion),
             selectinload(models.Usuario.favoritos).selectinload(models.Sucursal.servicios),
-            selectinload(models.Usuario.membresias).joinedload(models.Miembro.empresa),
-            selectinload(models.Usuario.membresias).joinedload(models.Miembro.sucursal),
-            selectinload(models.Usuario.membresias).joinedload(models.Miembro.rol),
         )
         .filter(models.Usuario.id == entity_id).first()
     )

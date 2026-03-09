@@ -1,16 +1,18 @@
-from mappers.common import telefonos, direccion_out, disponibilidad_servicio, miembro_out
+from mappers.common import telefonos, direccion_out, miembro_out, notificaciones_out
 from core import auxiliares, timezone
 from schemas import common as schemas_common
 from schemas import empresa as schemas_empresa
 
 # Convierte un objeto de la clase Empresa de SQLAlchemy en uno de clase EmpresaHomeOut de Pydantic
-def empresa_home_out(empresa, miembro_rol):
+def empresa_home_out(empresa, notificaciones, ultimo_cursor_id, miembro_rol):
 
     empresa_out = schemas_empresa.EmpresaHomeOut(
         id=empresa.id,
         nombre=empresa.nombre,
         logo_url=empresa.logo_url,
-        rol=miembro_rol)
+        notificaciones=notificaciones_out(notificaciones, ultimo_cursor_id),
+        rol=miembro_rol,
+    )
 
     return empresa_out
 
@@ -51,7 +53,7 @@ def miembro_empresa_out(miembro):
 
     out = schemas_empresa.MiembroEmpresaOut(
         miembro=miembro_out(miembro),
-        rol=auxiliares.transformar_rol(miembro.rol, contexto="empresa"), # string
+        rol=miembro.rol.nombre,
     )
 
     return out
@@ -61,7 +63,7 @@ def sucursal_de_miembro(miembro):
     out = schemas_empresa.SucursalDeMiembro(
         id=miembro.sucursal.id,
         nombre=miembro.sucursal.nombre,
-        rol=auxiliares.transformar_rol(miembro.rol, contexto="sucursal"), # string
+        rol=miembro.rol.nombre,
     )
 
     return out
@@ -105,5 +107,5 @@ def miembros_empresa_out(miembros_empresa: list, miembros_sucursales: list):
 
     return schemas_empresa.MiembrosEmpresaOut(
         miembros_empresa=miembros_emp_out,
-        miembros_sucursales=miembros_sucursales_out
+        miembros_sucursales=miembros_sucursales_out,
     )

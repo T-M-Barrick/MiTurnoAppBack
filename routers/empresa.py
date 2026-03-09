@@ -59,8 +59,10 @@ def acceder_empresa(
 ):
 
     empresa, current_user_rol = crud_empresa.acceder(db, empresa_id, current_user.id)
+
+    notificaciones, ultimo_cursor_id = crud_empresa.get_notificaciones(db, empresa_id, current_user.id)
     
-    emp = mappers_empresa.empresa_home_out(empresa, current_user_rol)
+    emp = mappers_empresa.empresa_home_out(empresa, notificaciones, ultimo_cursor_id, current_user_rol)
 
     return emp
 
@@ -88,7 +90,7 @@ def update_empresa(
 
     empresa, current_user_rol = crud_empresa.update(db, empresa_id, current_user.id, empresa_update)
 
-    emp = mappers_empresa.empresa_perfil_out(empresa, current_user_rol)
+    emp = mappers_empresa.empresa_home_out(empresa, [], None, current_user_rol)
 
     return emp
 
@@ -186,3 +188,52 @@ def delete_miembro(
 ):
 
     crud_empresa.delete_miembro(db, empresa_id, current_user.id, target_id)
+
+@router.get("/{empresa_id}/notificaciones", response_model=schemas_common.NotificacionesOut, status_code=200)
+def get_notificaciones_empresa(
+    empresa_id: int = Path(..., ge=1),
+    leidas: bool | None = Query(default=None),
+    id_ultimo: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=20, ge=1, le=100, alias="limite"),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    id_ultimo = id_ultimo if id_ultimo else 2**31 - 1 # valor grande si no viene
+
+    notificaciones, ultimo_cursor_id = crud_empresa.get_notificaciones(
+        db,
+        empresa_id,
+        current_user.id,
+        leidas=leidas,
+        id_ultimo=id_ultimo,
+        limit=limit,
+    )
+    
+    respuesta = mappers_common.notificaciones_out(notificaciones, ultimo_cursor_id)
+    
+    return respuesta
+
+# Cada 5 minutos el front pregunta por las notificaciones
+@router.get("/{empresa_id}/notificaciones/nuevas", response_model=list[schemas_common.NotificacionOut], status_code=200)
+def get_notificaciones_nuevas_empresa(
+    empresa_id: int = Path(..., ge=1),
+    id_posterior: int = Query(..., ge=1),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    notificaciones = crud_empresa.get_notificaciones_nuevas(db, empresa_id, current_user.id, id_posterior)
+
+    notificaciones_out = [mappers_common.notificacion_out(notif) for notif in notificaciones]
+    
+    return notificaciones_out
+
+@router.patch("/{empresa_id}/notificaciones/{notificacion_id}/leida", status_code=204)
+def update_notificacion_leida_empresa(
+    empresa_id: int = Path(..., ge=1),
+    notificacion_id: int = Path(..., ge=1),
+    current_user: models.Usuario = Depends(...),
+    db: Session = Depends(get_db),
+):
+    crud_empresa.update_notificacion_leida(db, empresa_id, current_user.id, notificacion_id)

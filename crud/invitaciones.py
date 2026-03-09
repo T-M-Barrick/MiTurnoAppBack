@@ -3,8 +3,13 @@ from datetime import timedelta
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from crud.common import (get_empresa, get_sucursal, verificar_rol_en_empresa,
-    verificar_rol_en_sucursal, verificar_rol_en_empresa_o_sucursal)
+from crud.common import (
+    get_empresa,
+    get_sucursal,
+    verificar_rol_en_empresa,
+    verificar_rol_en_sucursal,
+    verificar_rol_en_empresa_o_sucursal,
+)
 from core import models, constantes, exceptions, config, autenticacion, auxiliares,  mensajes
 
 def invitar_empleado(db: Session, empresa_id: int,
@@ -15,10 +20,10 @@ def invitar_empleado(db: Session, empresa_id: int,
 
         current_user_rol = verificar_rol_en_empresa_o_sucursal(db, current_user_id, sucursal.empresa.id, sucursal_id)
 
-        if current_user_rol == 'empleado':
+        if current_user_rol == 'EMPLEADO':
             raise exceptions.SucursalRolAssignedByEmpleadoError()
 
-        if current_user_rol == 'gerente_sucursal' and invitacion_rol == 'gerente_sucursal':
+        if current_user_rol == 'GERENTE_SUCURSAL' and invitacion_rol == 'GERENTE_SUCURSAL':
             raise exceptions.SucursalRolAssignedByGerenteError()
 
     else:
@@ -26,7 +31,7 @@ def invitar_empleado(db: Session, empresa_id: int,
 
         current_user_rol = verificar_rol_en_empresa(db, current_user_id, empresa_id)
 
-        if current_user_rol != 'propietario':
+        if current_user_rol != 'PROPIETARIO':
             raise exceptions.EmpresaRolNotAssignedByPropietarioError()
     
     # Buscar usuario por email
@@ -52,7 +57,7 @@ def invitar_empleado(db: Session, empresa_id: int,
     '''
     # Volver a poner si no se logra lo del mail
     ###################################
-    db_invitacion_rol = auxiliares.transformar_rol(invitacion_rol, contexto="empresa") # int
+    db_invitacion_rol = auxiliares.get_rol_id(db, invitacion_rol, 'EMPRESA')
 
     try:
         nuevo_miembro = models.Miembro_Empresa(usuario_id=usuario.id, empresa_id=empresa_id, rol=db_invitacion_rol)
@@ -82,7 +87,7 @@ def aceptar_invitacion(db: Session, token: str):
     
     if empresa_id:
 
-        roles_empresas = ['propietario', 'gerente_empresa']
+        roles_empresas = ['PROPIETARIO', 'GERENTE_EMPRESA']
         if rol not in roles_empresas:
             raise exceptions.InvitationTokenInvalidExpiredError()
 
@@ -92,14 +97,14 @@ def aceptar_invitacion(db: Session, token: str):
         es_miembro = db.query(models.Miembro_Empresa).filter_by(usuario_id=usuario_id, empresa_id=empresa_id).first()
         if es_miembro:
             return empresa.nombre, rol
+
+        db_rol_id = auxiliares.get_rol_id(db, rol, 'EMPRESA')
         
-        db_rol = auxiliares.transformar_rol(rol, contexto="empresa") # int
-        
-        nuevo_miembro = models.Miembro_Empresa(usuario_id=usuario_id, empresa_id=empresa_id, rol=db_rol)
+        nuevo_miembro = models.Miembro_Empresa(usuario_id=usuario_id, empresa_id=empresa_id, rol_id=db_rol_id)
     
     elif sucursal_id:
 
-        roles_sucursales = ['gerente_sucursal', 'empleado']
+        roles_sucursales = ['GERENTE_SUCURSAL', 'EMPLEADO']
         if rol not in roles_sucursales:
             raise exceptions.InvitationTokenInvalidExpiredError()
 
@@ -110,9 +115,9 @@ def aceptar_invitacion(db: Session, token: str):
         if es_miembro:
             return auxiliares.nombre_empresa(sucursal.empresa.nombre, sucursal.nombre), rol
         
-        db_rol = auxiliares.transformar_rol(rol, contexto="sucursal") # int
+        db_rol_id = auxiliares.get_rol_id(db, rol, 'SUCURSAL')
         
-        nuevo_miembro = models.Miembro_Sucursal(usuario_id=usuario_id, sucursal_id=sucursal_id, rol=db_rol)
+        nuevo_miembro = models.Miembro_Sucursal(usuario_id=usuario_id, sucursal_id=sucursal_id, rol_id=db_rol_id)
     
     else:
         raise exceptions.InvitationTokenInvalidExpiredError()

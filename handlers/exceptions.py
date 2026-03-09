@@ -49,28 +49,50 @@ def register_exception_handlers(app):
     
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
-        for err in exc.errors():
-            print(err)
-        '''
-        first_error = exc.errors()[0]
-        pydantic_type = first_error["type"]
-        field = ".".join(map(str, first_error["loc"][1:]))
 
-        if pydantic_type == "value_error":
-            code = "INVALID_INPUT"
-            logger.error(f"Error en el Front: {first_error['msg']}")
-        else:
-            code = PYDANTIC_ERROR_MAP.get(pydantic_type, "INVALID_INPUT")
-            if pydantic_type not in PYDANTIC_ERROR_MAP:
-                logger.warning(f"Nuevo error Pydantic no mapeado: {pydantic_type}")
+        errores = []
+
+        for err in exc.errors():
+
+            pydantic_type = err["type"]
+            field = ".".join(map(str, err["loc"][1:]))
+
+            if pydantic_type == "value_error":
+                code = "INVALID_INPUT"
+                logger.error(f"Error en el Front: {err['msg']}")
+            else:
+                code = PYDANTIC_ERROR_MAP.get(pydantic_type, "INVALID_INPUT")
+
+                if pydantic_type not in PYDANTIC_ERROR_MAP:
+                    logger.warning(f"Nuevo error Pydantic no mapeado: {pydantic_type}")
+
+            errores.append({
+                "code": code,
+                "field": field
+            })
 
         return JSONResponse(
             status_code=422,
             content={
-                "code": code,
-                "field": field
+                "code": "VALIDATION_ERROR",
+                "errors": errores
             }
         )
+        '''
+        Ejemplo:
+        {
+        "code": "VALIDATION_ERROR",
+        "errors": [
+            {
+            "code": "INVALID_INPUT",
+            "field": "nombre"
+            },
+            {
+            "code": "STRING_TOO_SHORT",
+            "field": "apellido"
+            }
+        ]
+        }
         '''
     
     @app.exception_handler(Exception)

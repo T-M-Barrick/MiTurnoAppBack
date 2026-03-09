@@ -1,15 +1,16 @@
-from mappers.common import telefonos, direccion_out, disponibilidad_servicio, miembro_out
+from mappers.common import telefonos, direccion_out, servicio_out, excepcion_fecha_servicio_out, miembro_out, notificaciones_out
 from core import auxiliares, timezone
 from schemas import common as schemas_common
 from schemas import sucursal as schemas_sucursal
 
-def sucursal_home_out(sucursal, miembro_rol):
+def sucursal_home_out(sucursal, notificaciones, ultimo_cursor_id, miembro_rol):
     
     sucursal_out = schemas_sucursal.SucursalHomeOut(
         id=sucursal.id,
         nombre_empresa=sucursal.empresa.nombre,
         nombre_sucursal=sucursal.nombre,
         logo_url=sucursal.empresa.logo_url,
+        notificaciones=notificaciones_out(notificaciones, ultimo_cursor_id),
         rol=miembro_rol,
     )
     
@@ -49,6 +50,7 @@ def cliente_out(cliente):
         observacion=cliente.observacion,
         fecha_hora_alta=timezone.ensure_utc(cliente.fecha_hora_alta),
         activo=cliente.activo,
+        bloqueado=cliente.bloqueo is not None,
     )
 
 def turno_sucursal_out(turno):
@@ -69,7 +71,9 @@ def turno_sucursal_out(turno):
         profesional_dni=turno.profesional.dni if tiene_profesional else None,
         profesional_apellido=turno.profesional.apellido if tiene_profesional else None,
         profesional_nombre=turno.profesional.nombre if tiene_profesional else None,
-        estado_turno=turno.estado_turno_sucursal.estado)
+        created_at=timezone.ensure_utc(turno.created_at),
+        estado_turno=turno.estado_turno_sucursal.estado,
+    )
 
 def turno_estado_out(turno):
     return schemas_common.TurnoEstadoOut(
@@ -93,26 +97,26 @@ def turno_historial_sucursal(h):
         profesional_dni=h.profesional.dni if tiene_profesional else None,
         profesional_apellido=h.profesional.apellido if tiene_profesional else None,
         profesional_nombre=h.profesional.nombre if if tiene_profesional else None,
+        created_at=timezone.ensure_utc(h.created_at),
         estado_turno=h.estado_turno_sucursal.estado if h.estado_turno_sucursal else None,
     )
 
-def servicio_sucursal_out(servicio):
-    usuario = servicio.profesional if servicio.profesional_id != None else None
+def servicio_sucursal_out(servicio_base):
+    usuario = servicio_base.profesional if servicio_base.profesional_id != None else None
 
     servicio_out = schemas_sucursal.ServicioSucursalOut(
-        id=servicio.id,
-        nombre=servicio.nombre,
-        duracion=servicio.duracion,
-        precio=servicio.precio,
-        aclaracion=servicio.aclaracion,
-        profesional_id=servicio.profesional_id if usuario else None,
+        id=servicio_base.id,
+        nombre=servicio_base.nombre,
+        aclaracion=servicio_base.aclaracion,
+        profesional_id=servicio_base.profesional_id if usuario else None,
         profesional_dni=usuario.dni if usuario else None,
         profesional_apellido=usuario.apellido if usuario else None,
         profesional_nombre=usuario.nombre if usuario else None,
-        minutos_min_reserva=servicio.minutos_min_reserva,
-        dias_max_reserva=servicio.dias_max_reserva,
-        cancelacion_limitada=servicio.cancelacion_limitada,
-        disponibilidades=[disponibilidad_servicio(d) for d in servicio.disponibilidades]
+        minutos_min_reserva=servicio_base.minutos_min_reserva,
+        dias_max_reserva=servicio_base.dias_max_reserva,
+        cancelacion_limitada=servicio_base.cancelacion_limitada,
+        servicios=[servicio_out(servicio) for servicio in servicio_base.servicios],
+        excepciones_fechas=[excepcion_fecha_servicio_out(excepcion) for excepcion in servicio_base.excepciones_fechas],
     )
 
     return servicio_out
@@ -121,7 +125,7 @@ def miembro_sucursal_out(miembro):
 
     miembro_out = schemas_sucursal.MiembroSucursalOut(
         miembro=miembro_out(miembro),
-        rol=auxiliares.transformar_rol(miembro.rol, contexto="sucursal"), # string
+        rol=miembro.rol.nombre,
     )
 
     return miembro_out
@@ -135,7 +139,7 @@ def block_cliente_out(bloqueo, miembro_rol):
         miembro_nombre=bloqueo.usuario_bloqueador.nombre,
         miembro_rol=miembro_rol,
         motivo=bloqueo.motivo,
-        created_at=timezone.ensure_utc(bloqueo.created_at)
+        created_at=timezone.ensure_utc(bloqueo.created_at),
     )
 
     return block_out

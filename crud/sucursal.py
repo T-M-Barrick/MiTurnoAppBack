@@ -2,12 +2,22 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 
 from fastapi import UploadFile
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session, joinedload, selectinload
 import cloudinary.uploader
 
-from crud.common import (get_empresa, get_sucursal, verificar_rol_en_empresa, verificar_rol_en_sucursal,
-verificar_rol_en_empresa_o_sucursal, nuevo_estado_check, contar_turnos_superpuestos_servicio, tiene_turno_superpuesto)
+from crud.common import (
+    get_empresa,
+    get_sucursal,
+    verificar_rol_en_empresa,
+    verificar_rol_en_sucursal,
+    verificar_rol_en_empresa_o_sucursal,
+    disponibilidad_cubre_turno,
+    nuevo_estado_check,
+    contar_turnos_superpuestos_servicio,
+    tiene_turno_superpuesto,
+)
 from core import models, constantes, exceptions, auxiliares, mensajes, timezone
 from schemas import common as schemas_common
 from schemas import sucursal as schemas_sucursal
@@ -18,7 +28,7 @@ def create(db: Session, usuario_id: int, nueva_sucursal: schemas_sucursal.Sucurs
 
     current_user_rol = verificar_rol_en_empresa(db, usuario_id, empresa.id)
 
-    if current_user_rol != 'propietario':
+    if current_user_rol != 'PROPIETARIO':
         raise exceptions.SucursalCreatedByGerenteEmpresaError()
 
     sucursal_existe = db.query(models.Sucursal).filter_by(
@@ -87,7 +97,7 @@ def update(db: Session, sucursal_id: int, usuario_id: int, sucursal_update: sche
     db_suc = get_sucursal(db, sucursal_id)
 
     current_user_rol = verificar_rol_en_empresa_o_sucursal(db, usuario_id, db_suc.empresa.id, sucursal_id)
-    if current_user_rol == 'empleado':
+    if current_user_rol == 'EMPLEADO':
         raise exceptions.EmpresaUpdatedByEmpleadoError()
     
     # Convertir a dict solo con campos enviados
@@ -204,19 +214,46 @@ def deactivate(db: Session, sucursal_id: int, usuario_id: int):
     # verificar permisos
     current_user_rol = verificar_rol_en_empresa(db, usuario_id, sucursal.empresa.id)
 
-    if current_user_rol != 'propietario':
+    if current_user_rol != 'PROPIETARIO':
         raise exceptions.SucursalDeactivateForbiddenError()
     
-    turno_confirmado = db.query(models.Turno).filter(
-        models.Turno.sucursal_id == sucursal_id,
-        models.Turno.eliminado_por_sucursal == False,
-        models.Turno.estado_turno_sucursal_id == 1,
-    ).first()
-
-    if turno_confirmado:
-        raise exceptions.SucursalDeactivateConTurnosConfirmadosError()
-
     try:
+        # Bloquear todos los servicios primero
+        servicios_base = (
+            db.query(models.ServicioBase)
+            .filter(
+                models.ServicioBase.sucursal_id == sucursal_id,
+            )
+            .order_by(models.ServicioBase.id.asc())
+            .with_for_update()
+            .all()
+        )
+
+        ids_servicios_base = [s.id for s in servicios_base]
+
+        servicios = db.query(models.Servicio).filter(
+            models.Servicio.servicio_base_id.in_(ids_servicios_base),
+        ).order_by(models.Servicio.id.asc()).with_for_update().all()
+
+        ids_servicios = [s.id for s in servicios]
+
+        disponibilidades = (
+            db.query(models.Disponibilidad)
+            .filter(models.Disponibilidad.servicio_id.in_(ids_servicios))
+            .order_by(models.Disponibilidad.id.asc())
+            .with_for_update()
+            .all()
+        )
+    
+        turno_confirmado = db.query(models.Turno).filter(
+            models.Turno.sucursal_id == sucursal_id,
+            models.Turno.eliminado_por_sucursal == False,
+            models.Turno.estado_turno_sucursal_id == 1,
+        ).first()
+
+        if turno_confirmado:
+            raise exceptions.SucursalDeactivateWithTurnosConfirmadosError()
+
         sucursal.activa = False
         db.commit()
     except Exception:
@@ -230,7 +267,7 @@ def reactivate(db: Session, sucursal_id: int, usuario_id: int):
     # verificar permisos
     current_user_rol = verificar_rol_en_empresa(db, usuario_id, sucursal.empresa.id)
 
-    if current_user_rol != 'propietario':
+    if current_user_rol != 'PROPIETARIO':
         raise exceptions.SucursalActivateForbiddenError()
 
     try:
@@ -240,15 +277,35 @@ def reactivate(db: Session, sucursal_id: int, usuario_id: int):
         db.rollback()
         raise
 
+'''
+Así se pediría, por ejemplo, en la solicitud HTTP:
+GET /sucursales/5/clientes?search=gonzalez&activo=true&id_ultimo=1234&limit=50
+'''
 def get_clientes(db: Session, sucursal_id: int,
     usuario_id: int, search: str | None = None, activo: bool | None = None, id_ultimo: int | None = None, limit: int = 50):
+    '''
+    Devuelve los clientes de una sucursal con paginación.
+    Van ordenados del más reciente creado al más antiguo (fecha descendente).
 
+    Parámetros:
+        search: filtra según alguna coincidencia con este string (contiene el string) (puede ser dni, nombre, apellido, etc.).
+        activo: filtra según si el usuario pidió solo clientes activos, inactivos o cualquiera de los dos.
+        id_ultimo: id de la última notificación recibida (para la siguiente página).
+        limit: cantidad máxima de notificaciones a devolver (máx 100).
+    
+    Proceso:
+        Primera solicitud (en login): front no envía cursor → back devuelve primeros N registros + cursor del último.
+        Siguientes solicitudes: front envía cursor → back devuelve los siguientes N registros + cursor actualizado.
+        Última página: back devuelve lista vacía y cursor None → front deja de pedir más.
+    '''
     db_suc = get_sucursal(db, sucursal_id)
 
     # Verificar que el usuario solicitante sea miembro de la empresa
     verificar_rol_en_empresa_o_sucursal(db, usuario_id, db_suc.empresa.id, sucursal_id)
 
-    query = db.query(models.Cliente).filter(models.Cliente.sucursal_id == sucursal_id)
+    query = db.query(models.Cliente).options(
+        joinedload(models.Cliente.bloqueo),
+    ).filter(models.Cliente.sucursal_id == sucursal_id)
 
     # Filtro por activo (IMPORTANTE usar is not None)
     if activo is not None:
@@ -269,6 +326,7 @@ def get_clientes(db: Session, sucursal_id: int,
                 models.Cliente.email.ilike(palabra),
                 models.Cliente.telefono.ilike(palabra),
                 models.Cliente.telefono2.ilike(palabra),
+                models.Cliente.observacion.ilike(palabra),
             )
         )
 
@@ -315,6 +373,10 @@ def create_cliente(db: Session, sucursal_id: int, usuario_id: int, cliente_nuevo
     except Exception:
         db.rollback()
         raise
+    
+    cliente = db.query(models.Cliente).options(
+        joinedload(models.Cliente.bloqueo),
+    ).filter(models.Cliente.id == cliente.id).first()
 
     return cliente
 
@@ -324,7 +386,9 @@ def update_cliente(db: Session, sucursal_id: int, usuario_id: int, cliente_id: i
 
     current_user_rol = verificar_rol_en_empresa_o_sucursal(db, usuario_id, sucursal.empresa.id, sucursal_id)
 
-    cliente = db.query(models.Cliente).filter_by(
+    cliente = db.query(models.Cliente).options(
+        joinedload(models.Cliente.bloqueo),
+    ).filter_by(
         id=cliente_id,
         sucursal_id=sucursal_id,
     ).first()
@@ -365,25 +429,25 @@ def deactivate_cliente(db: Session, sucursal_id: int, usuario_id: int, cliente_i
 
     current_user_rol = verificar_rol_en_empresa_o_sucursal(db, usuario_id, sucursal.empresa.id, sucursal_id)
 
-    cliente = db.query(models.Cliente).filter_by(
-        id=cliente_id,
-        sucursal_id=sucursal_id,
-    ).first()
-
-    if not cliente:
-        raise exceptions.ClienteNotFoundError()
-    
-    turno_confirmado = db.query(models.Turno).filter(
-        models.Turno.sucursal_id == sucursal_id,
-        models.Turno.eliminado_por_sucursal == False,
-        models.Turno.estado_turno_sucursal_id == 1,
-        models.Turno.cliente_id == cliente_id,
-    ).first()
-
-    if turno_confirmado:
-        raise exceptions.ClienteDeactivateConTurnosConfirmadosError()
-
     try:
+        cliente = db.query(models.Cliente).filter_by(
+            id=cliente_id,
+            sucursal_id=sucursal_id,
+        ).with_for_update().first()
+
+        if not cliente:
+            raise exceptions.ClienteNotFoundError()
+        
+        turno_confirmado = db.query(models.Turno).filter(
+            models.Turno.sucursal_id == sucursal_id,
+            models.Turno.eliminado_por_sucursal == False,
+            models.Turno.estado_turno_sucursal_id == 1,
+            models.Turno.cliente_id == cliente_id,
+        ).first()
+
+        if turno_confirmado:
+            raise exceptions.ClienteDeactivateWithTurnosConfirmadosError()
+
         cliente.activo = False
         db.commit()
     except Exception:
@@ -453,32 +517,6 @@ def get_turno(db: Session, turno_id: int):
     
     return turno
 
-# Función para saber si una disponibilidad cubre un turno
-def disponibilidad_cubre_turno(d, fecha_hora):
-
-    dia, hora = timezone.extraer_dia_y_hora_en_local(fecha_hora)
-
-    if d.dia != dia:
-        return False
-
-    if not (d.hora_inicio <= hora <= d.hora_fin):
-        return False
-
-    fecha_hora_local = timezone.utc_to_local(fecha_hora) # es un datetime aware local
-
-    # Generamos el datetime de la fecha y hora del inicio del rango de la disponibilidad (registro de la tabla Disponibilidad)
-    disp_inicio_local = datetime.combine(
-        fecha_hora_local.date(),
-        d.hora_inicio,
-        tzinfo=fecha_hora_local.tzinfo,
-    ) # disp_inicio_local es un datetime aware local
-
-    # Calculamos los minutos de diferencia entre la hora del turno que quiere sacar el usuario y la
-    # hora del inicio del rango de la disponibilidad (registro de la tabla Disponibilidad)
-    diferencia_minutos = int((fecha_hora_local - disp_inicio_local).total_seconds() / 60)
-
-    return diferencia_minutos % d.intervalo == 0
-
 def reservar_turno(db: Session, sucursal_id: int, usuario_miembro_id: int, reserva: schemas_usuario.ReservaTurnoSucursalIn):
 
     sucursal = get_sucursal(db, sucursal_id)
@@ -491,119 +529,151 @@ def reservar_turno(db: Session, sucursal_id: int, usuario_miembro_id: int, reser
     fecha_hora = reserva.fecha_hora
 
     dia, hora = timezone.extraer_dia_y_hora_en_local(fecha_hora)
-
-    cliente = db.query(models.Cliente).filter_by(
-        id=cliente_id,
-        sucursal_id=sucursal_id,
-    ).first()
-
-    if not cliente:
-        raise exceptions.ClienteNotFoundError()
-
-    bloqueo = db.query(models.BloqueoSucursal).filter_by(sucursal_id=sucursal_id, cliente_id=cliente_id).first()
-    if bloqueo:
-        raise exceptions.SucursalClienteBlockedError()
-    
-    usuario_cliente = db.query(models.Usuario).filter_by(email=cliente.email).first()
-
-    turnos_actuales_usuario_cliente = []
-
-    if usuario_cliente:
-        turnos_actuales_usuario_cliente = db.query(models.Turno).filter_by(
-            usuario_id=usuario_cliente.id,
-            eliminado_por_usuario=False,
-            estado_turno_usuario_id=1, # solo turnos confirmados cuento
-        ).all()
-
-    servicio = (
-        db.query(models.Servicio)
-        .filter(
-            models.Servicio.id == servicio_id,
-            models.Servicio.sucursal_id == sucursal_id,
-        )
-        .first()
-    )
-
-    if not servicio:
-        raise exceptions.SucursalServiceNotFoundError()
-
-    servicio = (
-        db.query(models.Servicio)
-        .join(models.Disponibilidad)
-        .options(
-            joinedload(models.Servicio.profesional),
-            selectinload(models.Servicio.disponibilidades),
-        )
-        .filter(
-            models.Servicio.id == servicio_id,
-            models.Servicio.sucursal_id == sucursal_id,
-            models.Disponibilidad.dia == dia,
-            models.Disponibilidad.hora_inicio <= hora,
-            models.Disponibilidad.hora_fin >= hora,
-        )
-        .first()
-    )
-
-    if not servicio:
-        raise exceptions.TurnoReservaDisponibilidadNoConfiguradaError()
-    
-    # Validar límite máximo de días
-    if servicio.dias_max_reserva is not None:
-        validar_turno_dias_max = timezone.validar_turno_dias_max(fecha_hora, servicio.dias_max_reserva)
-        if not validar_turno_dias_max:
-            raise exceptions.TurnoReservaFueraDeRangoError(dias_max=servicio.dias_max_reserva)
-    
-    # Buscar la disponibilidad válida para este servicio
-    disponibilidad_valida = None
-
-    for d in servicio.disponibilidades:
-
-        if disponibilidad_cubre_turno(d, fecha_hora):
-            disponibilidad_valida = d
-            break
-
-    if not disponibilidad_valida:
-        raise exceptions.TurnoSinDisponibilidadError()
-        # seguir aca la modificacion de esta funcion
-
-    conflicto_usuario = tiene_turno_superpuesto(turnos_actuales_usuario_cliente, fecha_hora, servicio.duracion)
-
-    if conflicto_usuario:
-        raise exceptions.TurnoUserOverlappingAppointmentError()
-    
-    if servicio.profesional_id is not None:
-
-        turnos_actuales_profesional = db.query(models.Turno).filter_by(
-            profesional_id=servicio.profesional_id,
-            estado_turno_sucursal_id=1, # solo turnos confirmados cuento
-        ).all()
-
-        conflicto_profesional = tiene_turno_superpuesto(turnos_actuales_profesional, fecha_hora, servicio.duracion)
-
-        if conflicto_profesional:
-            raise exceptions.TurnoProfesionalOverlappingAppointmentError(
-                apellido=servicio.profesional.apellido, nombre=servicio.profesional.nombre
-            )
-    
-    recordatorio_fecha_hora = None
-
-    if usuario_cliente:
-        if usuario_cliente.recordatorio_minutos_antes is not None:
-            recordatorio_fecha_hora = fecha_hora - timedelta(minutes=usuario_cliente.recordatorio_minutos_antes)
-    
-    turnos_actuales_servicio = contar_turnos_superpuestos_servicio(db, sucursal_id, servicio_id, fecha_hora, servicio.duracion)
+    fecha_local = timezone.utc_to_local(fecha_hora).date()
 
     try:
+        cliente = db.query(models.Cliente).filter_by(
+            id=cliente_id,
+            sucursal_id=sucursal_id,
+        ).first()
+
+        if not cliente:
+            raise exceptions.ClienteNotFoundError()
+
+        bloqueo = db.query(models.BloqueoSucursal).filter_by(sucursal_id=sucursal_id, cliente_id=cliente_id).first()
+        if bloqueo:
+            raise exceptions.SucursalClienteBlockedError()
+        
+        usuario_cliente = db.query(models.Usuario).filter_by(email=cliente.email).first()
+
+        turnos_actuales_usuario_cliente = []
+
+        if usuario_cliente:
+            turnos_actuales_usuario_cliente = db.query(models.Turno).filter_by(
+                usuario_id=usuario_cliente.id,
+                eliminado_por_usuario=False,
+                estado_turno_usuario_id=1, # solo turnos confirmados cuento
+            ).all()
+        
+        servicio = (
+            db.query(models.Servicio)
+            .join(models.ServicioBase)
+            .filter(
+                models.Servicio.id == servicio_id,
+                models.Servicio.vigente_desde <= fecha_local,
+                or_(
+                    models.Servicio.vigente_hasta == None,
+                    models.Servicio.vigente_hasta >= fecha_local,
+                ),
+                models.ServicioBase.sucursal_id == sucursal_id,
+            )
+            .first()
+        )
+
+        if not servicio:
+            raise exceptions.SucursalServiceNotFoundError()
+
+        servicio = (
+            db.query(models.Servicio)
+            .join(models.ServicioBase)
+            .join(models.Disponibilidad)
+            .options(
+                joinedload(models.Servicio.servicio_base).joinedload(models.ServicioBase.profesional),
+                selectinload(models.Servicio.disponibilidades),
+            )
+            .filter(
+                models.Servicio.id == servicio_id,
+                models.Servicio.vigente_desde <= fecha_local,
+                or_(
+                    models.Servicio.vigente_hasta == None,
+                    models.Servicio.vigente_hasta >= fecha_local,
+                ),
+                models.ServicioBase.sucursal_id == sucursal_id,
+                models.Disponibilidad.dia == dia,
+                models.Disponibilidad.hora_inicio <= hora,
+                models.Disponibilidad.hora_fin >= hora,
+            )
+            .first()
+        )
+
+        if not servicio:
+            raise exceptions.TurnoReservaDisponibilidadNoConfiguradaError()
+        
+        excepcion_fecha_servicio = (
+            db.query(models.ExcepcionFechaServicio)
+            .filter(
+                models.ExcepcionFechaServicio.servicio_base_id == servicio.servicio_base.id,
+                models.ExcepcionFechaServicio.fecha_inicio <= fecha_local,
+                models.ExcepcionFechaServicio.fecha_fin >= fecha_local,
+            )
+            .first()
+        )
+
+        if excepcion_fecha_servicio:
+            raise exceptions.SucursalReservaExceptionDateServiceError(motivo=excepcion_fecha_servicio.motivo)
+        
+        # Validar límite máximo de días
+        if servicio.servicio_base.dias_max_reserva is not None:
+            validar_turno_dias_max = timezone.validar_turno_dias_max(fecha_hora, servicio.servicio_base.dias_max_reserva)
+            if not validar_turno_dias_max:
+                raise exceptions.TurnoReservaFueraDeRangoError(dias_max=servicio.servicio_base.dias_max_reserva)
+        
+        # Buscar la disponibilidad válida para este servicio
+        disponibilidad_valida = None
+
+        for d in servicio.disponibilidades:
+
+            if disponibilidad_cubre_turno(d, fecha_hora):
+                disponibilidad_valida = d
+                break
+
+        if not disponibilidad_valida:
+            raise exceptions.TurnoSinDisponibilidadError()
+            # seguir aca la modificacion de esta funcion
+
+        conflicto_usuario = tiene_turno_superpuesto(turnos_actuales_usuario_cliente, fecha_hora, servicio.duracion)
+
+        if conflicto_usuario:
+            raise exceptions.TurnoUserOverlappingAppointmentError()
+        
+        if servicio.servicio_base.profesional_id is not None:
+
+            turnos_actuales_profesional = db.query(models.Turno).filter_by(
+                profesional_id=servicio.servicio_base.profesional_id,
+                estado_turno_sucursal_id=1, # solo turnos confirmados cuento
+            ).all()
+
+            conflicto_profesional = tiene_turno_superpuesto(turnos_actuales_profesional, fecha_hora, servicio.duracion)
+
+            if conflicto_profesional:
+                raise exceptions.TurnoProfesionalOverlappingAppointmentError(
+                    apellido=servicio.servicio_base.profesional.apellido,
+                    nombre=servicio.servicio_base.profesional.nombre,
+                )
+        
+        recordatorio_fecha_hora = None
+
+        if usuario_cliente:
+            if usuario_cliente.recordatorio_minutos_antes is not None:
+                recordatorio_fecha_hora = fecha_hora - timedelta(minutes=usuario_cliente.recordatorio_minutos_antes)
+
         # BLOQUEO CRÍTICO
         disponibilidad_valida = (
-                db.query(models.Disponibilidad)
-                .filter(models.Disponibilidad.id == disponibilidad_valida.id)
-                .with_for_update()
-                .one()
-            )
+            db.query(models.Disponibilidad)
+            .filter(models.Disponibilidad.id == disponibilidad_valida.id)
+            .with_for_update()
+            .one()
+        )
+
+        turnos_actuales_servicio = contar_turnos_superpuestos_servicio(db, sucursal_id, servicio_id, fecha_hora, servicio.duracion)
         
         if len(turnos_actuales_servicio) >= disponibilidad_valida.cant_turnos_max:
             raise exceptions.TurnoSinDisponibilidadError()
+
+        # Chequeo que la sucursal siga activa por si en el medio de la transacción justo se desactivó
+        db.refresh(sucursal)
+        if not sucursal.activa:
+            raise exceptions.SucursalDeactivatedError()
 
         turno = models.Turno(
             usuario_id=usuario_cliente.id if usuario_cliente else None,
@@ -611,11 +681,12 @@ def reservar_turno(db: Session, sucursal_id: int, usuario_miembro_id: int, reser
             cliente_id=cliente_id,
             fecha_hora=timezone.to_naive_utc(fecha_hora),
             servicio_id=servicio_id,
-            nombre_de_servicio=servicio.nombre,
+            nombre_de_servicio=servicio.servicio_base.nombre,
             duracion=servicio.duracion,
             precio=servicio.precio,
-            aclaracion_de_servicio=servicio.aclaracion,
-            profesional_id=servicio.profesional_id,
+            aclaracion_de_servicio=servicio.servicio_base.aclaracion,
+            profesional_id=servicio.servicio_base.profesional_id,
+            created_at=timezone.to_naive_utc(timezone.now_utc()),
             estado_turno_usuario_id=1, # CONFIRMADO
             estado_turno_sucursal_id=1, # CONFIRMADO
             eliminado_por_usuario=False,
@@ -668,15 +739,26 @@ def update_estado_turno(db: Session, sucursal_id: int, user: models.Usuario, tur
     if turno.estado_turno_sucursal_id != 1: # si no es CONFIRMADO el estado
         raise exceptions.TurnoUpdateStateImmutableError()
     
-    servicio = db.query(models.Servicio).filter_by(id=turno.servicio_id, sucursal_id=sucursal_id).first()
+    servicio = (
+        db.query(models.Servicio)
+        .join(models.ServicioBase)
+        .options(
+            joinedload(models.Servicio.servicio_base).joinedload(models.ServicioBase.profesional),
+        )
+        .filter(
+            models.Servicio.id == turno.servicio_id,
+            models.ServicioBase.sucursal_id == sucursal_id,
+        )
+        .first()
+    )
     if not servicio:
         raise SucursalServiceNotFoundError()
 
     if (nuevo_estado == 'CANCELADO_POR_EMPRESA'
         and turno.profesional_id is not None # si tiene profesional
         and turno.profesional_id != user.id
-        and servicio.cancelacion_limitada):
-
+        and servicio.servicio_base.cancelacion_limitada
+    ):
         profesional_rol = verificar_rol_en_empresa_o_sucursal(db, turno.profesional_id,
             db_suc.empresa.id, sucursal_id, error=exceptions.EmpresaMiembroNotFoundError())
 
@@ -709,7 +791,8 @@ def update_estado_turno(db: Session, sucursal_id: int, user: models.Usuario, tur
                 us_emp_nombre=auxiliares.nombre_empresa(db_suc.empresa.nombre, db_suc.nombre),
                 fecha_hora=inicio_turno,
                 servicio=turno.nombre_de_servicio,
-                motivo=turno_update.observacion)
+                motivo=turno_update.observacion,
+            )
         except exceptions.EmailSendFailedError:
             pass
 
@@ -838,15 +921,16 @@ def get_servicios(db: Session, sucursal_id: int, usuario_id: int):
 
     # Verificar que el usuario solicitante sea propietario, gerente de empresa o gerente de sucursal
     current_user_rol = verificar_rol_en_empresa_o_sucursal(db, usuario_id, sucursal.empresa.id, sucursal_id)
-    if current_user_rol == 'empleado':
-        raise exceptions.EmpresaServiceViewedByEmpleadoError()
+    if current_user_rol == 'EMPLEADO':
+        raise exceptions.SucursalServiceViewedByEmpleadoError()
 
-    servicios = db.query(models.Servicio).options(
-        joinedload(models.Servicio.profesional), # Para cada Servicio que se cargó, trae el Usuario asociado
-        selectinload(models.Servicio.disponibilidades) # Para cada Servicio que se cargó, trae todas las filas de Disponibilidad
+    servicios_base = db.query(models.ServicioBase).options(
+        joinedload(models.ServicioBase.profesional),
+        selectinload(models.ServicioBase.servicios).selectinload(models.Servicio.disponibilidades),
+        selectinload(models.ServicioBase.excepciones_fechas),
     ).filter_by(sucursal_id=sucursal_id).all()
 
-    return servicios
+    return servicios_base
 
 def validar_disponibilidades(disponibilidades):
     # disponibiliades será cualquier lista de objetos a los que se pueda acceeder a sus campos o atributos con .atributo,
@@ -857,14 +941,14 @@ def validar_disponibilidades(disponibilidades):
                 if d1.hora_inicio <= d2.hora_fin and d2.hora_inicio <= d1.hora_fin:
                     raise exceptions.SucursalServiceDisponibilidadSuperpuestaError()
 
-def create_servicio(db: Session, sucursal_id: int, usuario_id: int, servicio_nuevo: schemas_sucursal.ServicioCreate):
+def create_servicio_base(db: Session, sucursal_id: int, usuario_id: int, servicio_nuevo: schemas_sucursal.ServicioBaseCreate):
 
     sucursal = get_sucursal(db, sucursal_id)
 
     # Verificar que el usuario sea propietario, gerente de empresa o gerente de sucursal
     current_user_rol = verificar_rol_en_empresa_o_sucursal(db, usuario_id, sucursal.empresa.id, sucursal_id)
-    if current_user_rol == 'empleado':
-        raise exceptions.EmpresaServiceCreatedByEmpleadoError()
+    if current_user_rol == 'EMPLEADO':
+        raise exceptions.SucursalServiceCreatedByEmpleadoError()
     
     profesional_id = servicio_nuevo.profesional_id
     
@@ -872,33 +956,40 @@ def create_servicio(db: Session, sucursal_id: int, usuario_id: int, servicio_nue
         verificar_rol_en_empresa_o_sucursal(db, profesional_id,
             sucursal.empresa.id, sucursal_id, error=exceptions.EmpresaMiembroNotFoundError())
 
-    # Chequeo si ya existe un servicio igual en la sucursal con el mismo nombre y profesional (tenga o no)
-    servicio_existe = db.query(models.Servicio).filter_by(
-        sucursal_id=sucursal_id,
-        nombre=servicio_nuevo.nombre,
-        profesional_id=profesional_id,
+    servicio_base_existe = db.query(models.ServicioBase).filter(
+        models.ServicioBase.sucursal_id == sucursal_id,
+        models.ServicioBase.nombre == servicio_nuevo.nombre,
+        models.ServicioBase.profesional_id == profesional_id,
     ).first()
 
-    if servicio_existe:
-        raise exceptions.SucursalServiceDuplicatedError()
+    if servicio_base_existe:
+        raise exceptions.SucursalServiceAlreadyExistsError()
 
     validar_disponibilidades(servicio_nuevo.disponibilidades)
 
     try:
-        # Crear servicio
-        servicio = models.Servicio(
+        servicio_base = models.ServicioBase(
             sucursal_id=sucursal_id,
             nombre=servicio_nuevo.nombre,
-            duracion=servicio_nuevo.duracion,
-            precio=servicio_nuevo.precio,
             aclaracion=servicio_nuevo.aclaracion,
             profesional_id=profesional_id,
             minutos_min_reserva=servicio_nuevo.minutos_min_reserva,
             dias_max_reserva=servicio_nuevo.dias_max_reserva,
             cancelacion_limitada=servicio_nuevo.cancelacion_limitada,
         )
+        db.add(servicio_base)
+        db.flush() # obtiene servicio_base.id sin commit
+
+        servicio = models.Servicio(
+            servicio_base_id=servicio_base.id,
+            duracion=servicio_nuevo.duracion,
+            precio=servicio_nuevo.precio,
+            vigente_desde=servicio_nuevo.vigente_desde,
+            vigente_hasta=servicio_nuevo.vigente_hasta,
+            created_at=timezone.to_naive_utc(timezone.now_utc()),
+        )
         db.add(servicio)
-        db.flush()  # obtiene servicio.id SIN commit
+        db.flush() # obtiene servicio.id sin commit
 
         if servicio_nuevo.disponibilidades:
             
@@ -925,105 +1016,307 @@ def create_servicio(db: Session, sucursal_id: int, usuario_id: int, servicio_nue
         db.rollback()
         raise
 
-    servicio = db.query(models.Servicio).options(
-        joinedload(models.Servicio.profesional), # Para cada Servicio que se cargó, trae el Usuario asociado
-        selectinload(models.Servicio.disponibilidades), # Para cada Servicio que se cargó, trae todas las filas de Disponibilidad
-    ).filter_by(id=servicio.id, sucursal_id=sucursal_id).first()
+    servicio_base = db.query(models.ServicioBase).options(
+        joinedload(models.ServicioBase.profesional),
+        selectinload(models.ServicioBase.servicios).selectinload(models.Servicio.disponibilidades),
+        selectinload(models.ServicioBase.excepciones_fechas),
+    ).filter_by(id=servicio_base.id, sucursal_id=sucursal_id).first()
 
-    return servicio
+    return servicio_base
 
-def validar_turnos_existentes_vs_nueva_config(db: Session, servicio: models.Servicio, disponibilidades_finales: list):
-    """
-    Verifica que los turnos confirmados del servicio
-    sigan siendo válidos con la nueva configuración
-    de disponibilidades.
-    """
-
-    # Traer turnos confirmados del servicio
-    turnos_existentes = db.query(models.Turno).filter(
-        models.Turno.servicio_id == servicio.id,
-        models.Turno.estado_turno_sucursal_id == 1,
-        models.Turno.eliminado_por_sucursal == False,
-    ).all()
-
-    if not turnos_existentes:
-        return  # Nada que validar
-
-    # Agrupar por fecha_hora exacta
-    turnos_por_fecha = defaultdict(list)
-
-    for t in turnos_existentes:
-        turnos_por_fecha[t.fecha_hora].append(t)
-
-    # Validar cada fecha_hora existente
-    for fecha_hora, lista_turnos in turnos_por_fecha.items():
-
-        cant_actual = len(lista_turnos)
-
-        disponibilidad_que_cubre = None
-
-        for d in disponibilidades_finales:
-            if disponibilidad_cubre_turno(d, fecha_hora):
-                disponibilidad_que_cubre = d
-                break
-
-        if disponibilidad_que_cubre is None:
-            cant_max = 0
-        else:
-            cant_max = disponibilidad_que_cubre.cant_turnos_max
-        
-        dia, hora = timezone.extraer_dia_y_hora_en_local(fecha_hora)
-
-        if cant_actual > cant_max and disponibilidad_que_cubre is not None:
-            raise exceptions.SucursalServiceUpdateDisponibilidadWithTurnosExistentesError(
-                dia=dia,
-                hora=hora,
-                cant_max=cant_max,
-                cant_actual=cant_actual,
-            )
-        if cant_actual > cant_max and disponibilidad_que_cubre is None:
-            raise exceptions.SucursalServiceDeleteDisponibilidadWithTurnosExistentesError(
-                dia=dia,
-                hora=hora,
-                cant_actual=cant_actual,
-            )
-
-def update_servicio(db: Session, sucursal_id: int,
-    servicio_id: int, usuario_id: int, servicio_update: schemas_sucursal.ServicioUpdateIn):
+def update_servicio_base(db: Session, sucursal_id: int,
+    usuario_id: int, servicio_base_id: int, servicio_update: schemas_sucursal.ServicioBaseUpdateIn):
 
     sucursal = get_sucursal(db, sucursal_id)
 
     # Verificar que el usuario sea propietario, gerente de empresa o gerente de sucursal
     current_user_rol = verificar_rol_en_empresa_o_sucursal(db, usuario_id, sucursal.empresa.id, sucursal_id)
-    if current_user_rol == 'empleado':
-        raise exceptions.EmpresaServiceUpdatedByEmpleadoError()
+    if current_user_rol == 'EMPLEADO':
+        raise exceptions.SucursalServiceUpdatedByEmpleadoError()
     
     # Convertir a dict solo con campos enviados
     update_data = servicio_update.dict(exclude_unset=True)
 
     try:
-        # Traer servicio a actualizar
-        servicio = db.query(models.Servicio).filter_by(id=servicio_id, sucursal_id=sucursal_id).with_for_update().first()
-        if not servicio:
+        servicio_base = db.query(models.ServicioBase).filter_by(id=servicio_base_id, sucursal_id=sucursal_id).with_for_update().first()
+        if not servicio_base:
             raise exceptions.SucursalServiceNotFoundError()
 
         # Chequeo si ya existe otro servicio en la sucursal con el mismo nombre y profesional (tenga o no)
-        nombre_nuevo = update_data.get("nombre", servicio.nombre) # Si no vino, uso el nombre que ya estaba
-        profesional_id_nuevo = update_data.get("profesional_id", servicio.profesional_id) # Si no vino, uso el profesional_id que ya estaba
-        
-        if profesional_id_nuevo is not None:
-            verificar_rol_en_empresa_o_sucursal(db, profesional_id_nuevo,
-                sucursal.empresa.id, sucursal_id, error=exceptions.EmpresaMiembroNotFoundError())
+        nombre_nuevo = update_data.get("nombre", servicio_base.nombre) # si no vino, uso el nombre que ya estaba
 
-        servicio_existe = db.query(models.Servicio).filter(
-            models.Servicio.id != servicio_id,
-            models.Servicio.sucursal_id == sucursal_id,
-            models.Servicio.nombre == nombre_nuevo,
-            models.Servicio.profesional_id == profesional_id_nuevo,
+        servicio_base_existe = db.query(models.ServicioBase).filter(
+            models.ServicioBase.id != servicio_base_id,
+            models.ServicioBase.sucursal_id == sucursal_id,
+            models.ServicioBase.nombre == nombre_nuevo,
+            models.ServicioBase.profesional_id == servicio_base.profesional_id,
         ).first()
         
-        if servicio_existe:
-            raise exceptions.SucursalServiceDuplicatedError()
+        if servicio_base_existe:
+            raise exceptions.SucursalServiceAlreadyExistsError()
+
+        # Actualizar campos
+        for attr, value in update_data.items():
+            setattr(servicio_base, attr, value) # si value es None, se actualiza; si no existe en dict, se ignora
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    servicio_base = db.query(models.ServicioBase).options(
+        joinedload(models.ServicioBase.profesional),
+        selectinload(models.ServicioBase.servicios).selectinload(models.Servicio.disponibilidades),
+        selectinload(models.ServicioBase.excepciones_fechas),
+    ).filter_by(id=servicio_base.id, sucursal_id=sucursal_id).first()
+
+    return servicio_base
+
+def delete_servicios_base(db: Session, sucursal_id: int, usuario_id: int, servicios_delete: list[int]):
+
+    sucursal = get_sucursal(db, sucursal_id)
+
+    # Verificar que el usuario sea propietario, gerente de empresa o gerente de sucursal
+    current_user_rol = verificar_rol_en_empresa_o_sucursal(db, usuario_id, sucursal.empresa.id, sucursal_id)
+    if current_user_rol == 'EMPLEADO':
+        raise exceptions.SucursalServiceDeletedByEmpleadoError()
+    
+    try:
+        # Bloquear todos los servicios primero
+        servicios_base = (
+            db.query(models.ServicioBase)
+            .filter(
+                models.ServicioBase.id.in_(servicios_delete),
+                models.ServicioBase.sucursal_id == sucursal_id,
+            )
+            .order_by(models.ServicioBase.id.asc())
+            .with_for_update()
+            .all()
+        )
+
+        if len(servicios_base) != len(servicios_delete):
+            raise exceptions.SucursalServiceNotFoundError()
+
+        servicios = db.query(models.Servicio).filter(
+            models.Servicio.servicio_base_id.in_(servicios_delete),
+        ).order_by(models.Servicio.id.asc()).with_for_update().all()
+
+        ids_servicios = [s.id for s in servicios]
+
+        disponibilidades = (
+            db.query(models.Disponibilidad)
+            .filter(models.Disponibilidad.servicio_id.in_(ids_servicios))
+            .order_by(models.Disponibilidad.id.asc())
+            .with_for_update()
+            .all()
+        )
+
+        # Validar que no tengan turnos confirmados
+        turno_confirmado = (
+            db.query(models.Turno.id)
+            .filter(
+                models.Turno.servicio_id.in_(ids_servicios),
+                models.Turno.estado_turno_sucursal_id == 1,
+            )
+            .first()
+        )
+
+        if turno_confirmado:
+            raise exceptions.SucursalServiceDeleteWithTurnosConfirmadosError()
+
+        for servicio_base in servicios_base:
+            db.delete(servicio_base) # CASCADE borra servicios versionados (con sus disponibilidades) y excepciones
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+def create_servicio_version(db: Session, sucursal_id: int,
+    usuario_id: int, servicio_base_id: int, servicio_nuevo: schemas_sucursal.ServicioCreate):
+
+    sucursal = get_sucursal(db, sucursal_id)
+
+    # Verificar que el usuario sea propietario, gerente de empresa o gerente de sucursal
+    current_user_rol = verificar_rol_en_empresa_o_sucursal(db, usuario_id, sucursal.empresa.id, sucursal_id)
+    if current_user_rol == 'EMPLEADO':
+        raise exceptions.SucursalServiceCreatedByEmpleadoError()
+
+    servicio_base_existe = db.query(models.ServicioBase).filter(
+        models.ServicioBase.id == servicio_base_id,
+    ).first()
+
+    if not servicio_base_existe:
+        raise exceptions.SucursalServiceNotFoundError()
+
+    validar_disponibilidades(servicio_nuevo.disponibilidades)
+
+    try:
+        servicios_existentes = db.query(models.Servicio).filter(
+            models.Servicio.servicio_base_id == servicio_base_id,
+        ).order_by(models.Servicio.id.asc()).with_for_update().all()
+
+        if len(servicios_existentes) == 2:
+            raise SucursalServiceRangosFechasError()
+
+        servicio_actual = servicios_existentes[0]
+
+        if servicio_nuevo.vigente_desde <= servicio_actual.vigente_desde:
+            raise SucursalServicePosteriorFechaInicioVigenciaError()
+
+        disps_existentes = db.query(models.Disponibilidad).join(models.Servicio).filter(
+            models.Servicio.servicio_base_id == servicio_base_id,
+        ).order_by(models.Disponibilidad.id.asc()).with_for_update().all()
+
+        # ---------------------------------------------------------
+        # 🔎 Detectar superposición
+        # ---------------------------------------------------------
+
+        hay_superposicion = (
+            servicio_actual.vigente_hasta is None
+            or servicio_nuevo.vigente_desde <= servicio_actual.vigente_hasta
+        )
+
+        if hay_superposicion:
+
+            # ---------------------------------------------------------
+            # 1️⃣ Validar fechas de vigencia y traer turnos desde nueva fecha
+            # ---------------------------------------------------------
+
+            turnos_afectados = validar_turnos_vs_nueva_vigencia(
+                db,
+                servicio_actual.id,
+                servicio_nuevo.vigente_hasta,
+            )
+
+            # ---------------------------------------------------------
+            # 2️⃣ Validar que nuevas disponibilidades cubran esos turnos
+            # ---------------------------------------------------------
+
+            validar_turnos_existentes_vs_nueva_config_disps(
+                turnos=turnos_afectados,
+                disponibilidades_finales=servicio_nuevo.disponibilidades,
+            )
+
+            # ---------------------------------------------------------
+            # 3️⃣ Cortar servicio actual
+            # ---------------------------------------------------------
+
+            servicio_actual.vigente_hasta = servicio_nuevo.vigente_desde - timedelta(days=1)
+
+        servicio = models.Servicio(
+            servicio_base_id=servicio_base_id,
+            duracion=servicio_nuevo.duracion,
+            precio=servicio_nuevo.precio,
+            vigente_desde=servicio_nuevo.vigente_desde,
+            vigente_hasta=servicio_nuevo.vigente_hasta,
+            created_at=timezone.to_naive_utc(timezone.now_utc()),
+        )
+        db.add(servicio)
+        db.flush() # obtiene servicio.id sin commit
+
+        if servicio_nuevo.disponibilidades:
+            
+            # Procesar disponibilidades por día y rango horario
+            for disp_range in servicio_nuevo.disponibilidades:
+                dia = disp_range.dia
+                inicio = disp_range.hora_inicio
+                fin = disp_range.hora_fin
+                intervalo = disp_range.intervalo
+                cant_max = disp_range.cant_turnos_max
+
+                disp = models.Disponibilidad(
+                    servicio_id=servicio.id,
+                    dia=dia,
+                    hora_inicio=inicio,
+                    hora_fin=fin,
+                    intervalo=intervalo,
+                    cant_turnos_max=cant_max,
+                )
+                db.add(disp)
+        
+        if hay_superposicion:
+            for turno in turnos_afectados:
+                turno.servicio_id = servicio.id
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    servicio_base = db.query(models.ServicioBase).options(
+        joinedload(models.ServicioBase.profesional),
+        selectinload(models.ServicioBase.servicios).selectinload(models.Servicio.disponibilidades),
+        selectinload(models.ServicioBase.excepciones_fechas),
+    ).filter_by(id=servicio_base_id, sucursal_id=sucursal_id).first()
+
+    return servicio_base
+
+def update_servicio_version(db: Session, sucursal_id: int, usuario_id: int,
+    servicio_base_id: int, servicio_id: int, servicio_update: schemas_sucursal.ServicioUpdateIn):
+
+    sucursal = get_sucursal(db, sucursal_id)
+
+    # Verificar que el usuario sea propietario, gerente de empresa o gerente de sucursal
+    current_user_rol = verificar_rol_en_empresa_o_sucursal(db, usuario_id, sucursal.empresa.id, sucursal_id)
+    if current_user_rol == 'EMPLEADO':
+        raise exceptions.SucursalServiceUpdatedByEmpleadoError()
+    
+    # Convertir a dict solo con campos enviados
+    update_data = servicio_update.dict(exclude_unset=True)
+
+    try:
+        servicio_base = db.query(models.ServicioBase).filter_by(
+            id=servicio_base_id,
+            sucursal_id=sucursal_id,
+        ).first()
+
+        servicio = db.query(models.Servicio).filter_by(
+            id=servicio_id,
+            servicio_base_id=servicio_base_id,
+        ).with_for_update().first()
+
+        if not servicio_base or not servicio:
+            raise exceptions.SucursalServiceNotFoundError()
+
+        # Disponibilidades actuales en DB (las buscamos ahora para bloquear disponibilidades por las dudas en caso
+        # de que se cambie la fecha de vigencia vigente_hasta y haya conflicto con un usuario que quiere reservar un turno)
+        disps_db = db.query(models.Disponibilidad).filter(
+            models.Disponibilidad.servicio_id == servicio_id,
+        ).order_by(models.Disponibilidad.id.asc()).with_for_update().all()
+
+        nueva_vigente_hasta = update_data.get("vigente_hasta", servicio.vigente_hasta)
+
+        if nueva_vigente_hasta and nueva_vigente_hasta < servicio.vigente_desde:
+            raise RequestValidationError([
+                {
+                    "type": "value_error",
+                    "loc": ("body", "vigente_hasta"),
+                    "msg": "La fecha final de la vigencia del servicio debe ser mayor o igual que la fecha de inicio",
+                }
+            ])
+    
+        servicio_superpuesto = db.query(models.Servicio).filter(
+            models.Servicio.id != servicio_id,
+            models.Servicio.servicio_base_id == servicio_base_id,
+            # Condición parcial de superposición:
+            models.Servicio.vigente_desde <= (nueva_vigente_hasta if nueva_vigente_hasta else date.max),
+            or_(
+            # esta condición con el modelo de solo modificar vigente_hasta y con solo dos servicios máximo por servicio_base,
+            # no es necesario. Sin embargo, podría en el futuro modificarse la lógica y de esta manera ya quedan cubiertos
+            # todos los casos de superposición
+                models.Servicio.vigente_hasta == None,
+                models.Servicio.vigente_hasta >= servicio.vigente_desde,
+            ),
+        ).first()
+
+        if servicio_superpuesto:
+            raise SucursalServiceSuperpuestoError()
+        
+        # Este chequeo es por si el nuevo intervalo de vigencia deja de contemplar algunas fechas y esto se
+        # lograría solamente, en este caso, reduciendo la fecha vigente_hasta (recordar que en caso de que la
+        # nueva vigente_hasta sea None, significa que la fecha se hace infinita)
+        turnos_afectados = validar_turnos_vs_nueva_vigencia(db, servicio_id, nueva_vigente_hasta)
 
         # Actualizar campos simples (excepto disponibilidades)
         for attr, value in update_data.items():
@@ -1049,11 +1342,6 @@ def update_servicio(db: Session, sucursal_id: int,
                     self.hora_fin = hora_fin
                     self.intervalo = intervalo
                     self.cant_turnos_max = cant_turnos_max
-
-            # Disponibilidades actuales en BD
-            disps_db = db.query(models.Disponibilidad).filter(
-                models.Disponibilidad.servicio_id == servicio.id,
-            ).order_by(models.Disponibilidad.id.asc()).with_for_update().all()
 
             # diccionario de clave una tupla y valor un models.Disponibilidad con todas las disponibilidades que tiene la base actualmente
             db_map = {disp_key(d): d for d in disps_db}
@@ -1093,9 +1381,8 @@ def update_servicio(db: Session, sucursal_id: int,
 
             validar_disponibilidades(disponibilidades_finales_que_quedaran_en_la_base)
 
-            validar_turnos_existentes_vs_nueva_config(
-                db,
-                servicio,
+            validar_turnos_existentes_vs_nueva_config_disps(
+                turnos_afectados,
                 disponibilidades_finales_que_quedaran_en_la_base,
             )
 
@@ -1115,7 +1402,7 @@ def update_servicio(db: Session, sucursal_id: int,
                     # sí está en la json que viene ddel front, se agrega la disponibilidad
                     db.add(
                         models.Disponibilidad(
-                            servicio_id=servicio.id,
+                            servicio_id=servicio_id,
                             dia=disp_json["dia"],
                             hora_inicio=disp_json["hora_inicio"],
                             hora_fin=disp_json["hora_fin"],
@@ -1123,61 +1410,307 @@ def update_servicio(db: Session, sucursal_id: int,
                             cant_turnos_max=disp_json["cant_turnos_max"],
                         )
                     )
-
+        
+        servicio.modify_at = timezone.to_naive_utc(timezone.now_utc())
         db.commit()
     except Exception:
         db.rollback()
         raise
     
     servicio = db.query(models.Servicio).options(
-        joinedload(models.Servicio.profesional), # Para cada Servicio que se cargó, trae el Usuario asociado
-        selectinload(models.Servicio.disponibilidades), # Para cada Servicio que se cargó, trae todas las filas de Disponibilidad
-    ).filter_by(id=servicio_id, sucursal_id=sucursal_id).first()
+        selectinload(models.Servicio.disponibilidades),
+    ).filter_by(id=servicio_id).first()
 
     return servicio
 
-def delete_servicios(db: Session, sucursal_id: int, usuario_id: int, servicios_delete: list[int]):
+def delete_servicio_version(db: Session, sucursal_id: int, usuario_id: int, servicio_base_id: int, servicio_id: int):
 
     sucursal = get_sucursal(db, sucursal_id)
 
     # Verificar que el usuario sea propietario, gerente de empresa o gerente de sucursal
     current_user_rol = verificar_rol_en_empresa_o_sucursal(db, usuario_id, sucursal.empresa.id, sucursal_id)
-    if current_user_rol == 'empleado':
-        raise exceptions.EmpresaServiceDeletedByEmpleadoError()
+    if current_user_rol == 'EMPLEADO':
+        raise exceptions.SucursalServiceDeletedByEmpleadoError()
     
     try:
-        # Ordenar para evitar deadlocks
-        servicios_delete.sort()
+        servicio_base = (
+            db.query(models.ServicioBase)
+            .filter_by(id=servicio_base_id, sucursal_id=sucursal_id)
+            .with_for_update()
+            .first()
+        )
 
-        # Bloquear todos los servicios primero
+        if not servicio_base:
+            raise exceptions.SucursalServiceNotFoundError()
+
         servicios = (
             db.query(models.Servicio)
-            .filter(
-                models.Servicio.id.in_(servicios_delete),
-                models.Servicio.sucursal_id == sucursal_id,
-            )
+            .filter(models.Servicio.servicio_base_id == servicio_base_id)
             .order_by(models.Servicio.id.asc())
             .with_for_update()
             .all()
         )
 
-        if len(servicios) != len(servicios_delete):
+        servicio = next((s for s in servicios if s.id == servicio_id), None)
+
+        if not servicio:
             raise exceptions.SucursalServiceNotFoundError()
 
-        # Validar que no tengan turnos confirmados
-        for servicio in servicios:
-            turno_confirmado = db.query(models.Turno).filter(
-                models.Turno.servicio_id == servicio.id,
+        if len(servicios) == 1:
+            raise SucursalServiceRangosFechasError()
+        
+        disponibilidades = (
+            db.query(models.Disponibilidad)
+            .filter(models.Disponibilidad.servicio_id == servicio_id)
+            .order_by(models.Disponibilidad.id.asc())
+            .with_for_update()
+            .all()
+        )
+
+        # Validar que no tenga turnos confirmados
+        turno_confirmado = (
+            db.query(models.Turno)
+            .filter(
+                models.Turno.servicio_id == servicio_id,
                 models.Turno.estado_turno_sucursal_id == 1,
-            ).first()
+            )
+            .first()
+        )
 
-            if turno_confirmado:
-                raise exceptions.SucursalServiceConTurnosConfirmadosError()
+        if turno_confirmado:
+            raise exceptions.SucursalServiceDeleteWithTurnosConfirmadosError()
 
-        # Borrar servicios en otro bucle for para separar responsabilidades (primero validar y después ejecutar todo)
-        for servicio in servicios:
-            db.delete(servicio) # CASCADE borra disponibilidades
+        db.delete(servicio) # CASCADE borra disponibilidades
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
+def create_excepcion_fecha_servicio(db: Session, sucursal_id: int,
+    usuario_id: int, servicio_base_id: int, excepcion_nueva: schemas_sucursal.ExcepcionFechaServicioCreate):
+
+    sucursal = get_sucursal(db, sucursal_id)
+
+    # Verificar que el usuario sea propietario, gerente de empresa o gerente de sucursal
+    current_user_rol = verificar_rol_en_empresa_o_sucursal(db, usuario_id, sucursal.empresa.id, sucursal_id)
+    if current_user_rol == 'EMPLEADO':
+        raise exceptions.SucursalExceptionDateServiceCreatedByEmpleadoError()
+    
+    exc_nueva_fecha_inicio = excepcion_nueva.fecha_inicio
+    exc_nueva_fecha_fin = excepcion_nueva.fecha_fin
+
+    try:
+        servicio_base = (
+            db.query(models.ServicioBase)
+            .filter_by(id=servicio_base_id, sucursal_id=sucursal_id)
+            .with_for_update()
+            .first()
+        )
+
+        if not servicio_base:
+            raise exceptions.SucursalServiceNotFoundError()
+
+        # Lockear todas las excepciones del servicio en orden ascendente
+        excepciones = (
+            db.query(models.ExcepcionFechaServicio)
+            .filter(models.ExcepcionFechaServicio.servicio_base_id == servicio_base_id)
+            .order_by(models.ExcepcionFechaServicio.id.asc())
+            .with_for_update()
+            .all()
+        )
+
+        for exc in excepciones:
+            if exc.fecha_inicio <= exc_nueva_fecha_fin and exc.fecha_fin >= exc_nueva_fecha_inicio:
+                raise exceptions.SucursalExceptionDateServiceSuperpuestaError()
+
+        servicios = db.query(models.Servicio).filter(
+            models.Servicio.servicio_base_id == servicio_base_id,
+        ).order_by(models.Servicio.id.asc()).with_for_update().all()
+
+        ids_servicios = [s.id for s in servicios]
+
+        disponibilidades = (
+            db.query(models.Disponibilidad)
+            .filter(models.Disponibilidad.servicio_id.in_(ids_servicios))
+            .order_by(models.Disponibilidad.id.asc())
+            .with_for_update()
+            .all()
+        )
+        
+        turnos_servicio_base = (
+            db.query(models.Turno)
+            .filter(
+                models.Turno.servicio_id.in_(ids_servicios),
+                models.Turno.estado_turno_sucursal_id == 1,
+            )
+            .all()
+        )
+
+        for turno in turnos_servicio_base:
+            fecha_local = timezone.utc_to_local(turno.fecha_hora).date()
+
+            if exc_nueva_fecha_inicio <= fecha_local <= exc_nueva_fecha_fin:
+                raise exceptions.SucursalExceptionDateServiceCreateWithTurnosExistentesError()
+
+        excepcion = models.ExcepcionFechaServicio(
+            servicio_base_id=servicio_base_id,
+            fecha_inicio=exc_nueva_fecha_inicio,
+            fecha_fin=exc_nueva_fecha_fin,
+            motivo=excepcion_nueva.motivo,
+        )
+        db.add(excepcion)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    return excepcion
+
+def update_excepcion_fecha_servicio(db: Session, sucursal_id: int, usuario_id: int,
+    servicio_base_id: int, excepcion_id: int, excepcion_update: schemas_sucursal.ExcepcionFechaServicioUpdateIn):
+
+    sucursal = get_sucursal(db, sucursal_id)
+
+    # Verificar que el usuario sea propietario, gerente de empresa o gerente de sucursal
+    current_user_rol = verificar_rol_en_empresa_o_sucursal(db, usuario_id, sucursal.empresa.id, sucursal_id)
+    if current_user_rol == 'EMPLEADO':
+        raise exceptions.SucursalExceptionDateServiceUpdatedByEmpleadoError()
+    
+    # Convertir a dict solo con campos enviados
+    update_data = excepcion_update.dict(exclude_unset=True)
+
+    try:
+        servicio_base = (
+            db.query(models.ServicioBase)
+            .filter_by(id=servicio_base_id, sucursal_id=sucursal_id)
+            .with_for_update()
+            .first()
+        )
+
+        if not servicio_base:
+            raise exceptions.SucursalServiceNotFoundError()
+
+        # Lockear todas las excepciones del servicio en orden ascendente
+        excepciones = (
+            db.query(models.ExcepcionFechaServicio)
+            .filter(models.ExcepcionFechaServicio.servicio_base_id == servicio_base_id)
+            .order_by(models.ExcepcionFechaServicio.id.asc())
+            .with_for_update()
+            .all()
+        )
+
+        excepcion = next(
+            (e for e in excepciones if e.id == excepcion_id),
+            None
+        )
+
+        if not excepcion:
+            raise exceptions.SucursalExceptionDateServiceNotFoundError()
+        
+        exc_nueva_fecha_inicio = update_data.get("fecha_inicio", excepcion.fecha_inicio)
+        exc_nueva_fecha_fin = update_data.get("fecha_fin", excepcion.fecha_fin)
+        exc_nuevo_motivo = update_data.get("motivo", excepcion.motivo)
+
+        if exc_nueva_fecha_fin < exc_nueva_fecha_inicio:
+            if "fecha_inicio" in update_data:
+                raise RequestValidationError([
+                    {
+                        "type": "value_error",
+                        "loc": ("body", "fecha_inicio"),
+                        "msg": "La fecha final de una excepción de servicio debe ser mayor o igual que la fecha de inicio",
+                    }
+                ])
+            if "fecha_fin" in update_data:
+                raise RequestValidationError([
+                    {
+                        "type": "value_error",
+                        "loc": ("body", "fecha_fin"),
+                        "msg": "La fecha final de una excepción de servicio debe ser mayor o igual que la fecha de inicio",
+                    }
+                ])
+
+        for exc in excepciones:
+            if exc.id == excepcion_id:
+                continue
+
+            if exc_nueva_fecha_inicio <= exc.fecha_fin and exc_nueva_fecha_fin >= exc.fecha_inicio:
+                raise exceptions.SucursalExceptionDateServiceSuperpuestaError()
+
+        servicios = db.query(models.Servicio).filter(
+            models.Servicio.servicio_base_id == servicio_base_id,
+        ).order_by(models.Servicio.id.asc()).with_for_update().all()
+
+        ids_servicios = [s.id for s in servicios]
+
+        disponibilidades = (
+            db.query(models.Disponibilidad)
+            .filter(models.Disponibilidad.servicio_id.in_(ids_servicios))
+            .order_by(models.Disponibilidad.id.asc())
+            .with_for_update()
+            .all()
+        )
+
+        turnos_servicio_base = (
+            db.query(models.Turno)
+            .filter(
+                models.Turno.servicio_id.in_(ids_servicios),
+                models.Turno.estado_turno_sucursal_id == 1,
+            )
+            .all()
+        )
+
+        for turno in turnos_servicio_base:
+            fecha_local = timezone.utc_to_local(turno.fecha_hora).date()
+
+            if exc_nueva_fecha_inicio <= fecha_local <= exc_nueva_fecha_fin:
+                raise exceptions.SucursalExceptionDateServiceUpdateWithTurnosExistentesError()
+        
+        # Actualizar campos
+        for attr, value in update_data.items():
+            setattr(excepcion, attr, value)
+
+        db.commit()
+        db.refresh(excepcion)
+    except Exception:
+        db.rollback()
+        raise
+
+    return excepcion
+
+def delete_excepcion_fecha_servicio(db: Session, sucursal_id: int, usuario_id: int, servicio_base_id: int, excepcion_id: int):
+
+    sucursal = get_sucursal(db, sucursal_id)
+
+    # Verificar que el usuario sea propietario, gerente de empresa o gerente de sucursal
+    current_user_rol = verificar_rol_en_empresa_o_sucursal(db, usuario_id, sucursal.empresa.id, sucursal_id)
+    if current_user_rol == 'EMPLEADO':
+        raise exceptions.SucursalExceptionDateServiceDeletedByEmpleadoError()
+
+    try:
+        servicio_base = (
+            db.query(models.ServicioBase)
+            .filter_by(id=servicio_base_id, sucursal_id=sucursal_id)
+            .with_for_update()
+            .first()
+        )
+
+        if not servicio_base:
+            raise exceptions.SucursalServiceNotFoundError()
+
+        excepcion = (
+            db.query(models.ExcepcionFechaServicio)
+            .filter(
+                models.ExcepcionFechaServicio.id == excepcion_id,
+                models.ExcepcionFechaServicio.servicio_base_id == servicio_base_id,
+            )
+            .with_for_update() # no es necesario bloquear pero igual no perjudica en nada
+            .first()
+        )
+
+        if not excepcion:
+            raise exceptions.SucursalExceptionDateServiceNotFoundError()
+
+        db.delete(excepcion)
         db.commit()
     except Exception:
         db.rollback()
@@ -1189,11 +1722,13 @@ def get_miembros(db: Session, sucursal_id: int, usuario_solicitante_id: int):
 
     # Verificar que el usuario solicitante sea gerente de sucursal
     current_user_rol = verificar_rol_en_sucursal(db, usuario_solicitante_id, sucursal_id)
-    if current_user_rol == 'empleado':
+    if current_user_rol == 'EMPLEADO':
         raise exceptions.EmpresaMiembrosViewedByEmpleadoError()
 
     miembros = db.query(models.Miembro_Sucursal).options(
-        joinedload(models.Miembro_Sucursal.usuario)).filter_by(sucursal_id=sucursal_id).all()
+        joinedload(models.Miembro_Sucursal.usuario),
+        joinedload(models.Miembro_Sucursal.rol),
+    ).filter_by(sucursal_id=sucursal_id).all()
 
     return miembros
 
@@ -1201,8 +1736,11 @@ def get_miembro_sucursal(db: Session, sucursal_id: int, usuario_miembro_id: int)
 
     miembro_sucursal = db.query(models.Miembro_Sucursal).options(
         joinedload(models.Miembro_Sucursal.usuario),
-        joinedload(models.Miembro_Sucursal.sucursal)).filter_by(
-            usuario_id=usuario_miembro_id, sucursal_id=sucursal_id).first()
+        joinedload(models.Miembro_Sucursal.rol),
+    ).filter_by(
+        usuario_id=usuario_miembro_id,
+        sucursal_id=sucursal_id,
+    ).first()
 
     if not miembro_sucursal:
         raise exceptions.SucursalMiembroNotFoundError()
@@ -1219,22 +1757,42 @@ def leave_sucursal(db: Session, sucursal_id: int, usuario_id: int):
     # Traer el objeto de clase Miembro_Sucursal que se eliminará
     miembro_sucursal = get_miembro_sucursal(db, sucursal_id, usuario_id)
 
-    servicios = db.query(models.Servicio).filter(
-        models.Servicio.sucursal_id == sucursal_id,
-        models.Servicio.profesional_id == usuario_id).all()
-
     try:
-        for servicio in servicios:
+        servicios_base = db.query(models.ServicioBase).filter(
+            models.ServicioBase.sucursal_id == sucursal_id,
+            models.ServicioBase.profesional_id == usuario_id,
+        ).order_by(models.ServicioBase.id.asc()).with_for_update().all()
 
-            turno_confirmado = db.query(models.Turno).filter(
-                models.Turno.servicio_id == servicio.id,
+        ids_servicios_base = [s.id for s in servicios_base]
+
+        servicios = db.query(models.Servicio).filter(
+            models.Servicio.servicio_base_id.in_(ids_servicios_base),
+        ).order_by(models.Servicio.id.asc()).with_for_update().all()
+
+        ids_servicios = [s.id for s in servicios]
+
+        disponibilidades = (
+            db.query(models.Disponibilidad)
+            .filter(models.Disponibilidad.servicio_id.in_(ids_servicios))
+            .order_by(models.Disponibilidad.id.asc())
+            .with_for_update()
+            .all()
+        )
+
+        turno_confirmado = (
+            db.query(models.Turno.id)
+            .filter(
+                models.Turno.servicio_id.in_(ids_servicios),
                 models.Turno.estado_turno_sucursal_id == 1,
-            ).first()
+            )
+            .first()
+        )
 
-            if turno_confirmado:
-                raise exceptions.SucursalProfesionalConTurnosConfirmadosOutError()
-
-            db.delete(servicio)
+        if turno_confirmado:
+            raise exceptions.SucursalProfesionalConTurnosConfirmadosOutError()
+        
+        for servicio_base in servicios_base:
+            db.delete(servicio_base) # CASCADE borra servicios versionados (con sus disponibilidades) y excepciones
         
         db.delete(miembro_sucursal)
         db.commit()
@@ -1242,6 +1800,7 @@ def leave_sucursal(db: Session, sucursal_id: int, usuario_id: int):
         db.rollback()
         raise
 
+# Solo lo pueden hacer los propietarios o gerentes generales
 def add_miembro(db: Session, sucursal_id: int, usuario_solicitante_id: int, target_id: int, nuevo_rol: str):
 
     sucursal = get_sucursal(db, sucursal_id)
@@ -1252,7 +1811,8 @@ def add_miembro(db: Session, sucursal_id: int, usuario_solicitante_id: int, targ
     # Traer al menos un objeto de clase Miembro_Sucursal para comprobar que ya está en alguna sucursal al menos
     es_miembro_de_alguna_sucursal = db.query(models.Miembro_Sucursal).join(models.Sucursal).filter(
         models.Miembro_Sucursal.usuario_id == target_id,
-        models.Sucursal.empresa_id == sucursal.empresa.id).first()
+        models.Sucursal.empresa_id == sucursal.empresa.id,
+    ).first()
 
     if not es_miembro_de_alguna_sucursal:
         raise SucursalMiembroAddError()
@@ -1261,13 +1821,13 @@ def add_miembro(db: Session, sucursal_id: int, usuario_solicitante_id: int, targ
     miembro_sucursal_target = get_miembro_sucursal(db, sucursal_id, target_id)
     if not miembro_sucursal_target:
 
-        db_nuevo_rol = auxiliares.transformar_rol(nuevo_rol, contexto="sucursal") # int
+        db_nuevo_rol_id = auxiliares.get_rol_id(db, nuevo_rol, 'SUCURSAL')
         
         try:
             miembro = models.Miembro_Sucursal(
                 usuario_id=target_id,
                 sucursal_id=sucursal_id,
-                rol=db_nuevo_rol,
+                rol_id=db_nuevo_rol_id,
             )
             db.add(miembro)
             db.commit()
@@ -1277,13 +1837,15 @@ def add_miembro(db: Session, sucursal_id: int, usuario_solicitante_id: int, targ
     
     miembro_sucursales = db.query(models.Miembro_Sucursal).options(
         joinedload(models.Miembro_Sucursal.usuario),
-        joinedload(models.Miembro_Sucursal.sucursal)).filter(models.Miembro_Sucursal.usuario_id == target_id).all()
+        joinedload(models.Miembro_Sucursal.sucursal),
+        joinedload(models.Miembro_Sucursal.rol),
+    ).filter(models.Miembro_Sucursal.usuario_id == target_id).all()
 
     return miembro_sucursales
 
 # Esta función es solo para que un propietario pueda modificar un rol de gerente de sucursal o empleado
 # o para que un gerente de empresa pueda modificar un rol de gerente de sucursal o empleado sin que este
-# pueda ascender a uno a gerente de empresa o propietario
+# pueda ascender a uno a gerente de empresa o propietario (solo pueden ejecutar esta función los propietarios o gerentes generales)
 def update_rol(db: Session, sucursal_id: int, usuario_solicitante_id: int, target_id: int, nuevo_rol: str):
 
     sucursal = get_sucursal(db, sucursal_id)
@@ -1295,9 +1857,9 @@ def update_rol(db: Session, sucursal_id: int, usuario_solicitante_id: int, targe
     # verificar_rol_en_empresa_o_sucursal además de poner la prohibición de modificación de roles para empleados y este nuevo rol.
     current_user_rol = verificar_rol_en_empresa(db, usuario_solicitante_id, sucursal.empresa.id)
     
-    roles_empresas = ['propietario', 'gerente_empresa']
+    roles_empresas = ['PROPIETARIO', 'GERENTE_EMPRESA']
     
-    if current_user_rol == 'gerente_empresa' and nuevo_rol in roles_empresas:
+    if current_user_rol == 'GERENTE_EMPRESA' and nuevo_rol in roles_empresas:
         raise exceptions.EmpresaRolUpdateError()
     
     # Traer el objeto de clase Miembro_Sucursal al que se le modificará el rol
@@ -1306,29 +1868,39 @@ def update_rol(db: Session, sucursal_id: int, usuario_solicitante_id: int, targe
     try:
         if nuevo_rol in roles_empresas: # signifca que un gerente de sucursal o empleado pasa a ser gerente de empresa o propietario
 
-            db_nuevo_rol = auxiliares.transformar_rol(nuevo_rol, contexto="empresa") # int
+            db_nuevo_rol_id = auxiliares.get_rol_id(db, nuevo_rol, 'EMPRESA')
 
             miembro = models.Miembro_Empresa(
                 usuario_id=target_id,
                 empresa_id=sucursal.empresa.id,
-                rol=db_nuevo_rol,
+                rol_id=db_nuevo_rol_id,
             )
             db.add(miembro)
             db.delete(miembro_sucursal_target)
             db.commit()
 
+            miembro = db.query(models.Miembro_Empresa).options(
+                joinedload(models.Miembro_Empresa.usuario),
+                joinedload(models.Miembro_Empresa.rol),
+            ).filter_by(
+                usuario_id=target_id,
+                empresa_id=sucursal.empresa.id,
+            ).first()
+
             return miembro
 
         else: # signifca que un gerente de sucursal pasa a ser empleado o viceversa
 
-            db_nuevo_rol = auxiliares.transformar_rol(nuevo_rol, contexto="sucursal") # int
+            db_nuevo_rol_id = auxiliares.get_rol_id(db, nuevo_rol, 'SUCURSAL')
 
-            miembro_sucursal_target.rol = db_nuevo_rol
+            miembro_sucursal_target.rol_id = db_nuevo_rol_id
             db.commit()
 
             miembro_sucursales = db.query(models.Miembro_Sucursal).options(
                 joinedload(models.Miembro_Sucursal.usuario),
-                joinedload(models.Miembro_Sucursal.sucursal)).filter(models.Miembro_Sucursal.usuario_id == target_id).all()
+                joinedload(models.Miembro_Sucursal.sucursal),
+                joinedload(models.Miembro_Sucursal.rol),
+            ).filter(models.Miembro_Sucursal.usuario_id == target_id).all()
 
             return miembro_sucursales
 
@@ -1348,32 +1920,50 @@ def delete_miembro(db: Session, sucursal_id: int, usuario_solicitante_id: int, t
     # Traer el objeto de clase Miembro_Sucursal que se eliminará
     miembro_sucursal_target = get_miembro_sucursal(db, sucursal_id, target_id)
 
-    miembro_sucursal_target_rol = auxiliares.transformar_rol(miembro_sucursal_target.rol, contexto="sucursal") # string
+    miembro_sucursal_target_rol = miembro_sucursal_target.rol.nombre
 
     if not auxiliares.rol_superior(current_user_rol, miembro_sucursal_target_rol):
         raise exceptions.EmpresaMiembroDeleteError()
     
-    servicios = db.query(models.Servicio).join(models.Sucursal).filter(
-        models.Servicio.sucursal_id == sucursal_id,
-        models.Servicio.profesional_id == target_id).all()
-    
     try:
-        for servicio in servicios:
+        servicios_base = db.query(models.ServicioBase).filter(
+            models.ServicioBase.sucursal_id == sucursal_id,
+            models.ServicioBase.profesional_id == target_id,
+        ).order_by(models.ServicioBase.id.asc()).with_for_update().all()
 
-            turno_confirmado = db.query(models.Turno).filter(
-                models.Turno.servicio_id == servicio.id,
+        ids_servicios_base = [s.id for s in servicios_base]
+
+        servicios = db.query(models.Servicio).filter(
+            models.Servicio.servicio_base_id.in_(ids_servicios_base),
+        ).order_by(models.Servicio.id.asc()).with_for_update().all()
+
+        ids_servicios = [s.id for s in servicios]
+
+        disponibilidades = (
+            db.query(models.Disponibilidad)
+            .filter(models.Disponibilidad.servicio_id.in_(ids_servicios))
+            .order_by(models.Disponibilidad.id.asc())
+            .with_for_update()
+            .all()
+        )
+
+        turno_confirmado = (
+            db.query(models.Turno.id)
+            .filter(
+                models.Turno.servicio_id.in_(ids_servicios),
                 models.Turno.estado_turno_sucursal_id == 1,
-            ).first()
+            )
+            .first()
+        )
 
-            if turno_confirmado:
-                raise exceptions.SucursalMiembroDeleteConTurnosConfirmadosError()
-
-            db.delete(servicio)
+        if turno_confirmado:
+            raise exceptions.SucursalMiembroDeleteWithTurnosConfirmadosError()
+        
+        for servicio_base in servicios_base:
+            db.delete(servicio_base) # CASCADE borra servicios versionados (con sus disponibilidades) y excepciones
 
         db.delete(miembro_sucursal_target)
-
         db.commit()
-
     except Exception:
         db.rollback()
         raise
@@ -1385,13 +1975,17 @@ def get_clientes_bloqueados(db: Session, sucursal_id: int, usuario_solicitante_i
     verificar_rol_en_empresa_o_sucursal(db, usuario_solicitante_id, sucursal.empresa.id, sucursal_id)
 
     bloqueos = db.query(models.BloqueoSucursal).options(
-        joinedload(models.BloqueoSucursal.cliente),
+        joinedload(models.BloqueoSucursal.cliente).joinedload(models.Cliente.bloqueo),
         joinedload(models.BloqueoSucursal.usuario_bloqueador),
     ).filter_by(sucursal_id=sucursal_id).all()
 
-    miembros_empresa = db.query(models.Miembro_Empresa).filter_by(empresa_id=sucursal.empresa.id).all()
+    miembros_empresa = db.query(models.Miembro_Empresa).options(
+        joinedload(models.Miembro_Empresa.rol),
+    ).filter_by(empresa_id=sucursal.empresa.id).all()
 
-    miembros_sucursal = db.query(models.Miembro_Sucursal).filter_by(sucursal_id=sucursal_id).all()
+    miembros_sucursal = db.query(models.Miembro_Sucursal).options(
+        joinedload(models.Miembro_Sucursal.rol),
+    ).filter_by(sucursal_id=sucursal_id).all()
 
     miembros_empresa_map = {
         m.usuario_id: m
@@ -1410,11 +2004,11 @@ def get_clientes_bloqueados(db: Session, sucursal_id: int, usuario_solicitante_i
 
         if b.created_by_id in miembros_empresa_map:
             m = miembros_empresa_map[b.created_by_id]
-            miembro_rol = auxiliares.transformar_rol(m.rol, contexto="empresa") # string
+            miembro_rol = m.rol.nombre
 
         elif b.created_by_id in miembros_sucursal_map:
             m = miembros_sucursal_map[b.created_by_id]
-            miembro_rol = auxiliares.transformar_rol(m.rol, contexto="sucursal") # string
+            miembro_rol = m.rol.nombre
 
         resultados.append((b, miembro_rol))
 
@@ -1435,14 +2029,12 @@ def block_cliente(db: Session, sucursal_id: int, usuario_solicitante_id: int, cl
         raise exceptions.ClienteNotFoundError()
     
     bloqueo = db.query(models.BloqueoSucursal).options(
-        joinedload(models.BloqueoSucursal.cliente),
+        joinedload(models.BloqueoSucursal.cliente).joinedload(models.Cliente.bloqueo),
         joinedload(models.BloqueoSucursal.usuario_bloqueador),
     ).filter_by(sucursal_id=sucursal_id, cliente_id=cliente_id).first()
 
     if bloqueo:
         return bloqueo, current_user_rol
-
-    ahora_utc = timezone.to_naive_utc(timezone.now_utc())
 
     try:
         nuevo_bloqueo = models.BloqueoSucursal(
@@ -1450,7 +2042,7 @@ def block_cliente(db: Session, sucursal_id: int, usuario_solicitante_id: int, cl
             cliente_id=cliente_id,
             created_by_id=usuario_solicitante_id,
             motivo=motivo,
-            created_at=ahora_utc,
+            created_at=timezone.to_naive_utc(timezone.now_utc()),
         )
         db.add(nuevo_bloqueo)
         db.commit()
@@ -1459,7 +2051,7 @@ def block_cliente(db: Session, sucursal_id: int, usuario_solicitante_id: int, cl
         raise
 
     bloqueo = db.query(models.BloqueoSucursal).options(
-        joinedload(models.BloqueoSucursal.cliente),
+        joinedload(models.BloqueoSucursal.cliente).joinedload(models.Cliente.bloqueo),
         joinedload(models.BloqueoSucursal.usuario_bloqueador),
     ).filter_by(id=nuevo_bloqueo.id).first()
     
@@ -1470,7 +2062,7 @@ def unlock_cliente(db: Session, sucursal_id: int, usuario_solicitante_id: int, c
     sucursal = get_sucursal(db, sucursal_id)
 
     current_user_rol = verificar_rol_en_empresa_o_sucursal(db, usuario_solicitante_id, sucursal.empresa.id, sucursal_id)
-    if current_user_rol == 'empleado':
+    if current_user_rol == 'EMPLEADO':
         raise exceptions.SucursalClienteUnlockedByEmpleadoError()
 
     cliente = db.query(models.Cliente).filter_by(
@@ -1491,3 +2083,181 @@ def unlock_cliente(db: Session, sucursal_id: int, usuario_solicitante_id: int, c
     except Exception:
         db.rollback()
         raise
+
+'''
+Así se pediría, por ejemplo, en la solicitud HTTP:
+GET /sucursales/5/notificaciones?leidas=false&id_ultimo=1234&limit=20
+'''
+def get_notificaciones(
+    db: Session,
+    sucursal_id: int,
+    usuario_id: int,
+    leidas: bool | None = None,
+    id_ultimo: int | None = None,
+    limit: int = 20,
+):
+    '''
+    Devuelve las notificaciones de una sucursal con paginación.
+    Van ordenadas de la más reciente a la más antigua (fecha descendente).
+
+    Parámetros:
+        leidas: si es None, devuelve tanto las leidas como las no leidas.
+        id_ultimo: id de la última notificación recibida (para la siguiente página).
+        limit: cantidad máxima de notificaciones a devolver (máx 100).
+    
+    Proceso:
+        Primera solicitud (en login): front no envía cursor → back devuelve primeros N registros + cursor del último.
+        Siguientes solicitudes: front envía cursor → back devuelve los siguientes N registros + cursor actualizado.
+        Última página: back devuelve lista vacía y cursor None → front deja de pedir más.
+    '''
+    get_sucursal(db, sucursal_id)
+
+    verificar_rol_en_sucursal(db, usuario_id, sucursal_id)
+
+    query = db.query(models.Notificacion).filter(
+        models.Notificacion.usuario_id == usuario_id,
+        models.Notificacion.sucursal_id == sucursal_id,
+
+    )
+
+    # Aplicar paginación por cursor si se envió id_ultimo
+    if id_ultimo:
+        query = query.filter(
+            models.Notificacion.id < id_ultimo,
+        )
+    
+    # Filtro por leidas (IMPORTANTE usar is not None)
+    if leidas is not None:
+        query = query.filter(
+            models.Notificacion.leida == leidas,
+        )
+
+    query = query.order_by(models.Notificacion.id.desc())
+
+    limit = min(limit, 100) # no más de 100 por consulta
+
+    # notificaciones es una lista de objetos de clase Notificacion de SQLAlchemy
+    notificaciones = query.limit(limit).all()
+
+    ultimo_cursor_id = notificaciones[-1].id if notificaciones else None
+
+    return notificaciones, ultimo_cursor_id
+
+def get_notificaciones_nuevas(db: Session, sucursal_id: int, usuario_id: int, id_posterior: int):
+
+    get_sucursal(db, sucursal_id)
+    
+    verificar_rol_en_sucursal(db, usuario_id, sucursal_id)
+
+    notificaciones_nuevas = db.query(models.Notificacion).filter(
+        models.Notificacion.usuario_id == usuario_id,
+        models.Notificacion.sucursal_id == sucursal_id,
+        models.Notificacion.id > id_posterior,
+    ).order_by(models.Notificacion.id.desc()).all()
+
+    return notificaciones_nuevas
+
+def update_notificacion_leida(db: Session, sucursal_id: int, usuario_id: int, notificacion_id: int):
+
+    get_sucursal(db, sucursal_id)
+    
+    verificar_rol_en_sucursal(db, usuario_id, sucursal_id)
+
+    try:
+        filas = db.query(models.Notificacion).filter(
+            models.Notificacion.id == notificacion_id,
+            models.Notificacion.usuario_id == usuario_id, # chequeo que el mismo usuario de la notificación sea el que hace la request
+            models.Notificacion.sucursal_id == sucursal_id, # chequeo adicional de la sucursal
+        ).update(
+            {"leida": True},
+            synchronize_session=False
+        )
+
+        if filas == 0:
+            raise exceptions.NotificationNotFoundError()
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+def validar_turnos_vs_nueva_vigencia(
+    db: Session,
+    servicio_id: int,
+    nueva_fecha_hasta: date | None,
+):
+
+    turnos = db.query(models.Turno).filter(
+        models.Turno.servicio_id == servicio_id,
+        models.Turno.estado_turno_sucursal_id == 1,
+        models.Turno.eliminado_por_sucursal == False,
+    ).all()
+
+    fuera_de_rango = 0
+    turnos_dentro_del_nuevo_rango = []
+
+    for turno in turnos:
+        fecha_local = timezone.utc_to_local(turno.fecha_hora).date()
+
+        if nueva_fecha_hasta and fecha_local > nueva_fecha_hasta:
+            fuera_de_rango += 1
+            continue
+        
+        turnos_dentro_del_nuevo_rango.append(turno)
+
+    if fuera_de_rango > 0:
+        raise exceptions.SucursalServiceUpdateVigenciaWithTurnosExistentesError(
+            cant_turnos_actual=fuera_de_rango,
+        )
+    
+    return turnos_dentro_del_nuevo_rango # los que estaban en el viejo rango y ahora quedarán en el nuevo rango
+
+def validar_turnos_existentes_vs_nueva_config_disps(
+    turnos = list[models.Turno],
+    disponibilidades_finales: list,
+):
+    """
+    Verifica que los turnos confirmados del servicio sigan siendo válidos con la nueva configuración de disponibilidades.
+    disponibiliades_finales será cualquier lista de objetos a los que se pueda acceeder a sus campos o atributos con .atributo,
+    como, por ejemplo, una lista de objetos models.Disponibilidad con objetos schemas_common.DisponibilidadServicio
+    """
+
+    # Agrupar por fecha_hora exacta
+    turnos_por_fecha_hora = defaultdict(list)
+    for t in turnos:
+        turnos_por_fecha_hora[t.fecha_hora].append(t)
+
+    # Validar cada fecha_hora existente
+    for fecha_hora, lista_turnos in turnos_por_fecha_hora.items():
+
+        cant_turnos_actual = len(lista_turnos)
+
+        disponibilidad_que_cubre = None
+
+        for d in disponibilidades_finales:
+            if disponibilidad_cubre_turno(d, fecha_hora):
+                disponibilidad_que_cubre = d
+                break
+
+        if disponibilidad_que_cubre is None:
+            cant_turnos_max = 0
+        else:
+            cant_turnos_max = disponibilidad_que_cubre.cant_turnos_max
+        
+        dia, hora = timezone.extraer_dia_y_hora_en_local(fecha_hora)
+
+        if cant_turnos_actual > cant_turnos_max and disponibilidad_que_cubre is not None:
+            raise exceptions.SucursalServiceUpdateDisponibilidadWithTurnosExistentesError(
+                dia=constantes.DIAS_NOMBRES[dia],
+                hora=hora,
+                cant_turnos_max=cant_turnos_max,
+                cant_turnos_actual=cant_turnos_actual,
+                fecha=timezone.utc_to_local(fecha_hora).date(),
+            )
+        if cant_turnos_actual > cant_turnos_max and disponibilidad_que_cubre is None:
+            raise exceptions.SucursalServiceDeleteDisponibilidadWithTurnosExistentesError(
+                dia=constantes.DIAS_NOMBRES[dia],
+                hora=hora,
+                cant_turnos_actual=cant_turnos_actual,
+                fecha=timezone.utc_to_local(fecha_hora).date(),
+            )

@@ -1,8 +1,10 @@
 from datetime import datetime, timedelta, date, time
 from enum import Enum
-from typing import Self
+from typing import Self, Any
 
 from pydantic import BaseModel, Field, conint, confloat, constr, field_validator, model_validator
+
+from core.timezone import validate_aware_utc
 
 class EstadoTurno(str, Enum):
     CONFIRMADO = "CONFIRMADO"
@@ -12,12 +14,12 @@ class EstadoTurno(str, Enum):
     NO_CUMPLIDO = "NO_CUMPLIDO"
 
 class RolEmpresa(str, Enum):
-    propietario = "propietario"
-    gerente_empresa = "gerente_empresa"
+    PROPIETARIO = "PROPIETARIO"
+    GERENTE_EMPRESA = "GERENTE_EMPRESA"
 
 class RolSucursal(str, Enum):
-    gerente_sucursal = "gerente_sucursal"
-    empleado = "empleado"
+    GERENTE_SUCURSAL = "GERENTE_SUCURSAL"
+    EMPLEADO = "EMPLEADO"
 
 class Telefono(BaseModel):
     # El texto debe contener solo números del 0 al 9 luego de que el primer caracter sea el + y el siguiente sea un dígito entre 1 y 9
@@ -118,6 +120,53 @@ class DisponibilidadServicio(BaseModel):
     
     model_config = {"from_attributes": True}
 
+class ServicioOut(BaseModel):
+    id: conint(ge=1)
+    servicio_base_id: conint(ge=1)
+    duracion: conint(gt=0, multiple_of=5)
+    precio: condecimal(ge=0, max_digits=10, decimal_places=2)
+    vigente_desde: date
+    vigente_hasta: date | None
+    created_at: datetime
+    modify_at: datetime | None
+    disponibilidades: list[DisponibilidadServicio]
+
+    @field_validator("created_at", "modify_at", mode="after")
+    @classmethod
+    def validar_fecha_hora_utc(cls, value: datetime | None) -> datetime | None:
+        return validate_aware_utc(value) if value else None
+
+    @model_validator(mode="after")
+    def validar_consistencia(self) -> Self:
+        inicio = self.vigente_desde
+        fin = self.vigente_hasta
+
+        if inicio is not None and fin is not None:
+            if fin < inicio:
+                raise ValueError("La fecha final de la vigencia del servicio debe ser mayor o igual que la fecha de inicio")
+
+        return self
+
+    model_config = {"from_attributes": True}
+
+class ExcepcionFechaServicioOut(BaseModel):
+    id: conint(ge=1)
+    fecha_inicio: date
+    fecha_fin: date
+    motivo: constr(min_length=1, max_length=255) | None
+    
+    @model_validator(mode="after")
+    def validar_consistencia(self) -> Self:
+        inicio = self.fecha_inicio
+        fin = self.fecha_fin
+
+        if fin < inicio:
+            raise ValueError("La fecha final de una excepción de servicio debe ser mayor o igual que la fecha de inicio")
+
+        return self
+    
+    model_config = {"from_attributes": True}
+
 class MiembroOut(BaseModel):
     id: conint(ge=1)
     dni: constr(regex=r"^[0-9]{6,8}$")
@@ -136,5 +185,25 @@ class UpdateRolIn(BaseModel):
         if isinstance(self.nuevo_rol, RolSucursal) and self.sucursal_id is None:
             raise ValueError("Debe especificarse la sucursal del nuevo miembro")
         return self
+
+    model_config = {"from_attributes": True}
+
+class NotificacionOut(BaseModel):
+    id: conint(ge=1)
+    tipo: constr(min_length=1, max_length=50)
+    extra_data: dict[str, Any] | None
+    created_at: datetime
+    leida: bool
+
+    @field_validator("created_at", mode="after")
+    @classmethod
+    def validar_fecha_hora_utc(cls, value: datetime) -> datetime:
+        return validate_aware_utc(value)
+
+    model_config = {"from_attributes": True}
+
+class NotificacionesOut(BaseModel):
+    notificaciones: list[NotificacionOut]
+    ultimo_cursor_id: conint(ge=1) | None
 
     model_config = {"from_attributes": True}

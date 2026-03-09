@@ -3,8 +3,18 @@ from typing import Self
 
 from pydantic import BaseModel, EmailStr, Field, conint, condecimal, constr, conlist, field_validator, model_validator
 
-from schemas.common import (Telefono, TelefonoConID, DireccionCreate,
-    DireccionOut, DireccionUpdateIn, DisponibilidadServicio, MiembroOut, EstadoTurno, RolEmpresa, RolSucursal)
+from schemas.common import (
+    Telefono,
+    TelefonoConID,
+    DireccionCreate,
+    DireccionOut,
+    DireccionUpdateIn,
+    MiembroOut,
+    NotificacionesOut,
+    EstadoTurno,
+    RolEmpresa,
+    RolSucursal,
+)
 from core.timezone import validate_aware_utc
 
 class EmpresaCreate(BaseModel):
@@ -23,6 +33,7 @@ class EmpresaHomeOut(BaseModel):
     id: conint(ge=1)
     nombre: constr(min_length=1, max_length=50)
     logo_url: constr(min_length=1, max_length=255) | None
+    notificaciones: NotificacionesOut
     rol: RolEmpresa
 
     model_config = {"from_attributes": True}
@@ -67,6 +78,9 @@ class EmpresaUpdateIn(BaseModel):
         if not isinstance(values, dict):
             # si bien significa que el front envió cualquier cosa, lo devolvemos tal cual para que pydantic se encargue de tirar error
             return values
+        
+        if not values:
+            raise ValueError("Debe enviarse al menos un campo en el schema EmpresaUpdateIn")
 
         campos_permitidos_null = ["rubro", "rubro2"]
 

@@ -11,7 +11,7 @@ def get_empresa(db: Session, empresa_id: int):
         db.query(models.Empresa)
         .options(
             selectinload(models.Empresa.sucursales) # cargar sucursales para telefonos
-            .selectinload(models.Sucursal.telefonos) # cargar teléfonos de cada sucursal
+            .selectinload(models.Sucursal.telefonos), # cargar teléfonos de cada sucursal
             selectinload(models.Empresa.sucursales) # cargar sucursales otra vez para dirección
             .joinedload(models.Sucursal.direccion), # cargar dirección de cada sucursal
         )
@@ -54,11 +54,11 @@ def verificar_rol_en_empresa(db: Session, usuario_id: int,
     """
     Verifica que un usuario pertenece a una empresa y devuelve el nombre de su rol.
     """
-    miembro = db.query(models.Miembro).options(
-        joinedload(models.Miembro.rol),
+    miembro = db.query(models.Miembro_Empresa).options(
+        joinedload(models.Miembro_Empresa.rol),
     ).filter_by(
-        empresa_id=empresa_id,
         usuario_id=usuario_id,
+        empresa_id=empresa_id,
     ).first()
 
     if not miembro:
@@ -71,11 +71,11 @@ def verificar_rol_en_sucursal(db: Session, usuario_id: int,
     """
     Verifica que un usuario pertenece a una sucursal sin pertenecer a la empresa global y devuelve el nombre de su rol.
     """
-    miembro = db.query(models.Miembro).options(
-        joinedload(models.Miembro.rol),
+    miembro = db.query(models.Miembro_Sucursal).options(
+        joinedload(models.Miembro_Sucursal.rol),
     ).filter_by(
-        sucursal_id=sucursal_id,
         usuario_id=usuario_id,
+        sucursal_id=sucursal_id,
     ).first()
 
     if not miembro:
@@ -88,18 +88,18 @@ def verificar_rol_en_empresa_o_sucursal(db: Session, usuario_id: int,
     """
     Verifica que un usuario pertenece a una sucursal (o tiene un rol más global en la empresa) y devuelve el nombre de su rol.
     """
-    miembro_empresa = db.query(models.Miembro).options(
-        joinedload(models.Miembro.rol),
+    miembro_empresa = db.query(models.Miembro_Empresa).options(
+        joinedload(models.Miembro_Empresa.rol),
     ).filter_by(
-        empresa_id=empresa_id,
         usuario_id=usuario_id,
+        empresa_id=empresa_id,
     ).first()
 
-    miembro_sucursal = db.query(models.Miembro).options(
-        joinedload(models.Miembro.rol),
+    miembro_sucursal = db.query(models.Miembro_Sucursal).options(
+        joinedload(models.Miembro_Sucursal.rol),
     ).filter_by(
-        sucursal_id=sucursal_id,
         usuario_id=usuario_id,
+        sucursal_id=sucursal_id,
     ).first()
 
     if not miembro_empresa and not miembro_sucursal:
@@ -111,6 +111,32 @@ def verificar_rol_en_empresa_o_sucursal(db: Session, usuario_id: int,
         miembro = miembro_sucursal
 
     return miembro.rol.nombre
+
+# Función para saber si una disponibilidad cubre un turno
+def disponibilidad_cubre_turno(d, fecha_hora):
+
+    dia, hora = timezone.extraer_dia_y_hora_en_local(fecha_hora)
+
+    if d.dia != dia:
+        return False
+
+    if not (d.hora_inicio <= hora <= d.hora_fin):
+        return False
+
+    fecha_hora_local = timezone.utc_to_local(fecha_hora) # es un datetime aware local
+
+    # Generamos el datetime de la fecha y hora del inicio del rango de la disponibilidad (registro de la tabla Disponibilidad)
+    disp_inicio_local = datetime.combine(
+        fecha_hora_local.date(),
+        d.hora_inicio,
+        tzinfo=fecha_hora_local.tzinfo,
+    ) # disp_inicio_local es un datetime aware local
+
+    # Calculamos los minutos de diferencia entre la hora del turno que quiere sacar el usuario y la
+    # hora del inicio del rango de la disponibilidad (registro de la tabla Disponibilidad)
+    diferencia_minutos = int((fecha_hora_local - disp_inicio_local).total_seconds() / 60)
+
+    return diferencia_minutos % d.intervalo == 0
 
 def nuevo_estado_check(db: Session, nuevo_estado: str, inicio_turno: datetime, duracion: int, cancelado_por_usuario: bool = True):
 
@@ -285,3 +311,17 @@ def verificacion_email(db: Session, token: str, usuario: bool = True):
     except Exception:
         db.rollback()
         raise
+
+def construir_notificacion(tipo: str, **metadata):
+
+    config = NOTIFICACIONES[tipo]
+
+    title = config["title"]
+    body = config["body"].format(**metadata)
+
+    return {
+        "type": tipo,
+        "title": title,
+        "body": body,
+        "metadata": metadata,
+    }
