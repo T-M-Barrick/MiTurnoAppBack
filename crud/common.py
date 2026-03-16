@@ -11,9 +11,9 @@ def get_empresa(db: Session, empresa_id: int):
         db.query(models.Empresa)
         .options(
             selectinload(models.Empresa.sucursales) # cargar sucursales para telefonos
-            .selectinload(models.Sucursal.telefonos), # cargar teléfonos de cada sucursal
+                .selectinload(models.Sucursal.telefonos), # cargar teléfonos de cada sucursal
             selectinload(models.Empresa.sucursales) # cargar sucursales otra vez para dirección
-            .joinedload(models.Sucursal.direccion), # cargar dirección de cada sucursal
+                .joinedload(models.Sucursal.direccion), # cargar dirección de cada sucursal
         )
         .filter(models.Empresa.id == empresa_id).first()
     )
@@ -189,11 +189,11 @@ def contar_turnos_superpuestos_servicio(db: Session, sucursal_id: int, servicio_
     # Voy a contar la cantidad de turnos existentes que se superponen con el turno que el cliente quiere sacar (nuevo turno) para este servicio
 
     turnos = db.query(models.Turno).filter(
-        models.Turno.sucursal_id == sucursal_id, # turno de la misma  sucursal
-        models.Turno.eliminado_por_sucursal == False,
         models.Turno.servicio_id == servicio_id, # turno del mismo servicio
-        models.Turno.fecha_hora < fecha_hora + timedelta(minutes=duracion), # El turno existente empieza antes de que termine el nuevo turno
         models.Turno.estado_turno_sucursal_id == 1, # solo turnos confirmados cuento
+        models.Turno.fecha_hora < fecha_hora + timedelta(minutes=duracion), # El turno existente empieza antes de que termine el nuevo turno
+        models.Turno.sucursal_id == sucursal_id, # turno de la misma  sucursal (solo para confirmación del servicio)
+        models.Turno.eliminado_por_sucursal == False,
     ).all()
 
     turnos_actuales = [
@@ -238,12 +238,16 @@ def check_email_rate_limit(db: Session, email: str, accion: str, limite: int = 5
 
     ahora_utc = timezone.to_naive_utc(timezone.now_utc())
 
-    registro = db.query(models.LimiteEmail).filter_by(email=email, accion=accion).first()
+    email_normalizado = models.normalizar_email(email)
+
+    registro = db.query(models.LimiteEmail).filter_by(email_normalizado=email_normalizado, accion=accion).first()
+
+    accion_nombre = constantes.ACCIONES_DE_ENVIO_DE_EMAIL.get(accion, accion)
 
     try:
         if not registro:
             registro = models.LimiteEmail(
-                email=email,
+                email_normalizado=email_normalizado,
                 accion=accion,
                 conteo=1,
                 inicio_ventana=ahora_utc
@@ -258,10 +262,12 @@ def check_email_rate_limit(db: Session, email: str, accion: str, limite: int = 5
             registro.inicio_ventana = ahora_utc
             db.commit()
             return True
+        
+
 
         if registro.conteo >= limite:
             logger.warning(
-                f"El correo {email} alcanzó el límite de envíos de emails para {constantes.ACCIONES_DE_ENVIO_DE_EMAIL.get(accion, accion)}"
+                f"El correo {email_normalizado} alcanzó el límite de envíos de emails para {accion_nombre}"
             )
             return False
 
@@ -273,7 +279,7 @@ def check_email_rate_limit(db: Session, email: str, accion: str, limite: int = 5
     except Exception as e:
         db.rollback()
         logger.error(
-            f"Error en función check_email_rate_limit para el correo {email} para {constantes.ACCIONES_DE_ENVIO_DE_EMAIL.get(accion, accion)}: {e}"
+            f"Error en función check_email_rate_limit para el correo {email_normalizado} para {accion_nombre}: {e}"
         )
         # Si ponemos True, el usuario no quedará el registro en la tabla LimiteEmail y, por consiguiente, el usuario recibirá el mail:
         # Ventaja: el usuario no se ve perjudicado por un error en base de datos o back
@@ -312,16 +318,33 @@ def verificacion_email(db: Session, token: str, usuario: bool = True):
         db.rollback()
         raise
 
-def construir_notificacion(tipo: str, **metadata):
+def crear_extra_data_notificacion(**metadata):
+    return metadata
 
-    config = NOTIFICACIONES[tipo]
+def guardar_notificacion(
+    db: Session,
+    usuario_id: int,
+    tipo: str,
+    extra_data: dict,
+    empresa_id: int | None = None,
+    sucursal_id: int | None = None,
+    fecha_hora_minima_de_envio: datetime | None = None,
+):
 
-    title = config["title"]
-    body = config["body"].format(**metadata)
+    if tipo not in constantes.NOTIFICACIONES:
+        raise ValueError(f"Tipo de notificación inválido: {tipo}")
+    
+    ahora_naive_utc = timezone.to_naive_utc(timezone.now_utc())
 
-    return {
-        "type": tipo,
-        "title": title,
-        "body": body,
-        "metadata": metadata,
-    }
+    notificacion = models.Notificacion(
+        usuario_id=usuario_id,
+        empresa_id=empresa_id,
+        sucursal_id=sucursal_id,
+        tipo=tipo,
+        extra_data=extra_data,
+        created_at=ahora_naive_utc,
+        fecha_hora_minima_de_envio=fecha_hora_minima_de_envio if fecha_hora_minima_de_envio else ahora_naive_utc,
+        leida=False,
+    )
+
+    db.add(notificacion)

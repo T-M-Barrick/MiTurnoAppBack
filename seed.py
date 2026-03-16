@@ -1,3 +1,4 @@
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core import models
@@ -43,6 +44,10 @@ def run_seeds(db: Session):
     db.commit()
 
 db = SessionLocal()
+
+version = db.execute(text("SHOW server_version")).scalar()
+print(f"PostgreSQL versión: {version}")
+
 run_seeds(db)
 db.close()
 

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, date, time
 from enum import Enum
 from typing import Self, Any
 
-from pydantic import BaseModel, Field, conint, confloat, constr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, conint, confloat, constr, field_validator, model_validator
 
 from core.timezone import validate_aware_utc
 
@@ -25,14 +25,14 @@ class Telefono(BaseModel):
     # El texto debe contener solo números del 0 al 9 luego de que el primer caracter sea el + y el siguiente sea un dígito entre 1 y 9
     numero: constr(regex=r"^\+[1-9][0-9]{5,28}$")
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class TelefonoConID(BaseModel):
     id: conint(ge=1)
     # El texto debe contener solo números del 0 al 9 luego de que el primer caracter sea el + y el siguiente sea un dígito entre 1 y 9
     numero: constr(regex=r"^\+[1-9][0-9]{5,28}$")
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class DireccionCreate(BaseModel):
     calle: constr(min_length=1, max_length=255) | None
@@ -45,7 +45,7 @@ class DireccionCreate(BaseModel):
     lng: confloat(ge=-180, le=180)
     aclaracion: constr(min_length=1, max_length=255) | None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class DireccionOut(BaseModel):
     id: conint(ge=1)
@@ -59,7 +59,7 @@ class DireccionOut(BaseModel):
     lng: confloat(ge=-180, le=180)
     aclaracion: constr(min_length=1, max_length=255) | None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class DireccionUpdateIn(BaseModel):
     '''
@@ -77,13 +77,13 @@ class DireccionUpdateIn(BaseModel):
     lng: confloat(ge=-180, le=180)
     aclaracion: constr(min_length=1, max_length=255) | None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class TurnoEstadoOut(BaseModel):
     id: conint(ge=1)
     estado: EstadoTurno
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class DisponibilidadServicio(BaseModel):
     dia: conint(ge=0, le=6) # 0 = lunes, 6 = domingo
@@ -118,7 +118,7 @@ class DisponibilidadServicio(BaseModel):
 
         return self
     
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class ServicioOut(BaseModel):
     id: conint(ge=1)
@@ -147,7 +147,7 @@ class ServicioOut(BaseModel):
 
         return self
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class ExcepcionFechaServicioOut(BaseModel):
     id: conint(ge=1)
@@ -165,7 +165,7 @@ class ExcepcionFechaServicioOut(BaseModel):
 
         return self
     
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class MiembroOut(BaseModel):
     id: conint(ge=1)
@@ -174,7 +174,7 @@ class MiembroOut(BaseModel):
     nombre: constr(min_length=1, max_length=50)
     email: EmailStr = Field(..., max_length=255)
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class UpdateRolIn(BaseModel):
     nuevo_rol: RolEmpresa | RolSucursal
@@ -186,7 +186,7 @@ class UpdateRolIn(BaseModel):
             raise ValueError("Debe especificarse la sucursal del nuevo miembro")
         return self
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class NotificacionOut(BaseModel):
     id: conint(ge=1)
@@ -200,10 +200,10 @@ class NotificacionOut(BaseModel):
     def validar_fecha_hora_utc(cls, value: datetime) -> datetime:
         return validate_aware_utc(value)
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class NotificacionesOut(BaseModel):
     notificaciones: list[NotificacionOut]
     ultimo_cursor_id: conint(ge=1) | None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)

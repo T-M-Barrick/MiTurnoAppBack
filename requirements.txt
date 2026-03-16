@@ -1,7 +1,7 @@
 fastapi==0.116.1 # framework web
 uvicorn==0.35.0 # servidor ASGI
 SQLAlchemy==2.0.43 # ORM
-PyMySQL==1.1.2 # driver MySQL
+psycopg2-binary==2.9.11 # driver PostgreSQL
 pydantic[email]==2.11.7 # validación de datos con soporte de email
 passlib[bcrypt]==1.7.4 # passlib + las librerías extra para que bcrypt funcione
 bcrypt==4.0.1 # librería de hashing de contraseñas

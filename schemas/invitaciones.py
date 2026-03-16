@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, date, time
 from typing import Self
 
-from pydantic import BaseModel, Field, conint, confloat, constr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, conint, confloat, constr, field_validator, model_validator
 
 from schemas.common import RolEmpresa, RolSucursal
 
@@ -10,6 +10,12 @@ class InvitacionEmpleadoIn(BaseModel):
     rol: RolEmpresa | RolSucursal
     empresa_id: conint(ge=1)
     sucursal_id: conint(ge=1) | None = None
+
+    @field_validator("email", mode="after")
+    @classmethod
+    def normalizar_email(cls, value: EmailStr) -> str:
+        # Importante: .strip() elimina espacios invisibles
+        return value.lower().strip()
 
     @model_validator(mode="after")
     def validar_rol_vs_scope(self) -> Self:
@@ -25,10 +31,10 @@ class InvitacionEmpleadoIn(BaseModel):
                 )
         return self
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class InvitacionAceptadaOut(BaseModel):
     nombre: constr(min_length=1, max_length=100) # puede ser nombre de empresa o nombre completo de sucursal (empresa - sucursal)
     rol: RolEmpresa | RolSucursal
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)

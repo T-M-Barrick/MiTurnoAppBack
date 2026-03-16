@@ -13,7 +13,9 @@ from schemas import empresa as schemas_empresa
 # Crear empresa
 def create(db: Session, usuario_id: int, empresa: schemas_empresa.EmpresaCreate):
 
-    empresa_existe = db.query(models.Empresa).filter_by(email=empresa.email).first()
+    email_normalizado = models.normalizar_email(empresa.email)
+
+    empresa_existe = db.query(models.Empresa).filter_by(email_normalizado=email_normalizado).first()
     if empresa_existe and empresa_existe.email_verificado:
         raise exceptions.EmpresaAlreadyExistsError()
     if empresa_existe and not empresa_existe.email_verificado:
@@ -38,7 +40,7 @@ def create(db: Session, usuario_id: int, empresa: schemas_empresa.EmpresaCreate)
 
         # Crear el objeto de sucursal
         db_sucursal = models.Sucursal(
-            empresa_id=db_empresa.id
+            empresa_id=db_empresa.id,
             cuit=empresa.cuit,
             nombre=None,
             email=None,
@@ -93,20 +95,23 @@ def acceder(db: Session, empresa_id: int, usuario_id: int):
 
 def update(db: Session, empresa_id: int, usuario_id: int, empresa_update: schemas_empresa.EmpresaUpdateIn):
 
-    db_emp = get_empresa(db, empresa_id)
+    empresa = get_empresa(db, empresa_id)
 
     current_user_rol = verificar_rol_en_empresa(db, usuario_id, empresa_id)
     
     try:
-        for attr, value in empresa_update.dict(exclude_unset=True).items():
-            setattr(db_emp, attr, value)
+        for attr, value in empresa_update.model_dump(exclude_unset=True).items():
+            setattr(empresa, attr, value)
+        
+        for sucursal in empresa.sucursales:
+            # Para disparar el evento definido en models y que se actualice busqueda_texto de sucursal (el None nunca se inserta)
+            sucursal.busqueda_texto = None
 
         db.commit()
+        db.refresh(empresa)
     except Exception:
         db.rollback()
         raise
-
-    empresa = db.query(models.Empresa).filter_by(id=empresa_id).first()
 
     return empresa, current_user_rol
 
@@ -201,17 +206,22 @@ def get_miembros(db: Session, empresa_id: int, usuario_solicitante_id: int):
 
     return miembros_empresa, miembros_sucursales
 
-def get_miembro_empresa(db: Session, empresa_id: int, usuario_miembro_id: int):
+def get_miembro_empresa(db: Session, empresa_id: int, usuario_miembro_id: int, lanzar_error: bool = True, bloquear: bool = False):
 
-    miembro_empresa = db.query(models.Miembro_Empresa).options(
+    query = db.query(models.Miembro_Empresa).options(
         joinedload(models.Miembro_Empresa.usuario),
         joinedload(models.Miembro_Empresa.rol),
     ).filter_by(
         usuario_id=usuario_miembro_id,
         empresa_id=empresa_id,
-    ).first()
+    )
+
+    if bloquear:
+        query = query.with_for_update(of=models.Miembro_Empresa)
+
+    miembro_empresa = query.first()
     
-    if not miembro_empresa:
+    if not miembro_empresa and lanzar_error:
         raise exceptions.EmpresaMiembroNotFoundError()
 
     return miembro_empresa
@@ -224,6 +234,73 @@ def contar_propietarios(db: Session, empresa_id: int):
     ).count()
 
     return cant
+
+# El usuario de la empresa se borra de esta
+def leave_empresa(db: Session, empresa_id: int, usuario_id: int):
+
+    get_empresa(db, empresa_id)
+
+    try:
+        empresa = (
+            db.query(models.Empresa)
+            .filter(models.Empresa.id == empresa_id)
+            .with_for_update()
+            .first()
+        )
+
+        verificar_rol_en_empresa(db, usuario_id, empresa_id)
+
+        # Traer el objeto de clase Miembro_Empresa que se eliminará
+        miembro_empresa = get_miembro_empresa(db, empresa_id, usuario_id, bloquear=True)
+
+        miembro_empresa_rol = miembro_empresa.rol.nombre
+
+        if miembro_empresa_rol == "PROPIETARIO":
+            propietarios = contar_propietarios(db, empresa_id)
+            if propietarios <= 1:
+                raise exceptions.EmpresaPropietarioOutError()
+
+        servicios_base = db.query(models.ServicioBase).join(models.Sucursal).filter(
+            models.Sucursal.empresa_id == empresa_id,
+            models.ServicioBase.profesional_id == usuario_id,
+        ).order_by(models.ServicioBase.id.asc()).with_for_update(of=models.ServicioBase).all()
+
+        ids_servicios_base = [s.id for s in servicios_base]
+
+        servicios = db.query(models.Servicio).filter(
+            models.Servicio.servicio_base_id.in_(ids_servicios_base),
+        ).order_by(models.Servicio.id.asc()).with_for_update().all()
+
+        ids_servicios = [s.id for s in servicios]
+
+        disponibilidades = (
+            db.query(models.Disponibilidad)
+            .filter(models.Disponibilidad.servicio_id.in_(ids_servicios))
+            .order_by(models.Disponibilidad.id.asc())
+            .with_for_update()
+            .all()
+        )
+
+        turno_confirmado = (
+            db.query(models.Turno.id)
+            .filter(
+                models.Turno.servicio_id.in_(ids_servicios),
+                models.Turno.estado_turno_sucursal_id == 1,
+            )
+            .first()
+        )
+
+        if turno_confirmado:
+            raise exceptions.EmpresaProfesionalConTurnosConfimadosOutError()
+        
+        for servicio_base in servicios_base:
+            db.delete(servicio_base) # CASCADE borra servicios versionados (con sus disponibilidades) y excepciones
+        
+        db.delete(miembro_empresa)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
 # Esta función es solo para que un propietario pueda modificar un rol de gerente de empresa a otro
 # o para que un propietario se degrade a gerente de empresa a sí mismo
@@ -247,7 +324,7 @@ def update_rol(db: Session, empresa_id: int, usuario_solicitante_id: int, target
         if current_user_rol != 'PROPIETARIO':
             raise exceptions.EmpresaRolUpdateError()
 
-        miembro_empresa_target = get_miembro_empresa(db, empresa_id, target_id)
+        miembro_empresa_target = get_miembro_empresa(db, empresa_id, target_id, bloquear=True)
 
         miembro_empresa_target_rol_actual = miembro_empresa_target.rol.nombre
         
@@ -315,73 +392,6 @@ def update_rol(db: Session, empresa_id: int, usuario_solicitante_id: int, target
         db.rollback()
         raise
 
-# El usuario de la empresa se borra de esta
-def leave_empresa(db: Session, empresa_id: int, usuario_id: int):
-
-    get_empresa(db, empresa_id)
-
-    try:
-        empresa = (
-            db.query(models.Empresa)
-            .filter(models.Empresa.id == empresa_id)
-            .with_for_update()
-            .first()
-        )
-
-        verificar_rol_en_empresa(db, usuario_id, empresa_id)
-
-        # Traer el objeto de clase Miembro_Empresa que se eliminará
-        miembro_empresa = get_miembro_empresa(db, empresa_id, usuario_id)
-
-        miembro_empresa_rol = miembro_empresa.rol.nombre
-
-        if miembro_empresa_rol == "PROPIETARIO":
-            propietarios = contar_propietarios(db, empresa_id)
-            if propietarios <= 1:
-                raise exceptions.EmpresaPropietarioOutError()
-
-        servicios_base = db.query(models.ServicioBase).join(models.Sucursal).filter(
-            models.Sucursal.empresa_id == empresa_id,
-            models.ServicioBase.profesional_id == usuario_id,
-        ).order_by(models.ServicioBase.id.asc()).with_for_update().all()
-
-        ids_servicios_base = [s.id for s in servicios_base]
-
-        servicios = db.query(models.Servicio).filter(
-            models.Servicio.servicio_base_id.in_(ids_servicios_base),
-        ).order_by(models.Servicio.id.asc()).with_for_update().all()
-
-        ids_servicios = [s.id for s in servicios]
-
-        disponibilidades = (
-            db.query(models.Disponibilidad)
-            .filter(models.Disponibilidad.servicio_id.in_(ids_servicios))
-            .order_by(models.Disponibilidad.id.asc())
-            .with_for_update()
-            .all()
-        )
-
-        turno_confirmado = (
-            db.query(models.Turno.id)
-            .filter(
-                models.Turno.servicio_id.in_(ids_servicios),
-                models.Turno.estado_turno_sucursal_id == 1,
-            )
-            .first()
-        )
-
-        if turno_confirmado:
-            raise exceptions.EmpresaProfesionalConTurnosConfimadosOutError()
-        
-        for servicio_base in servicios_base:
-            db.delete(servicio_base) # CASCADE borra servicios versionados (con sus disponibilidades) y excepciones
-        
-        db.delete(miembro_empresa)
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
-
 def delete_miembro(db: Session, empresa_id: int, usuario_solicitante_id: int, target_id: int):
 
     get_empresa(db, empresa_id)
@@ -390,20 +400,20 @@ def delete_miembro(db: Session, empresa_id: int, usuario_solicitante_id: int, ta
 
     if usuario_solicitante_id == target_id:
         raise exceptions.EmpresaInvalidSelfRemovalError()
-
-    # Traer el objeto de clase Miembro_Empresa que se eliminará
-    miembro_empresa_target = get_miembro_empresa(db, empresa_id, target_id)
-
-    miembro_empresa_target_rol = miembro_empresa_target.rol.nombre
-
-    if not auxiliares.rol_superior(current_user_rol, miembro_empresa_target_rol):
-        raise exceptions.EmpresaMiembroDeleteError()
     
     try:
+        # Traer el objeto de clase Miembro_Empresa que se eliminará
+        miembro_empresa_target = get_miembro_empresa(db, empresa_id, target_id, bloquear=True)
+
+        miembro_empresa_target_rol = miembro_empresa_target.rol.nombre
+
+        if not auxiliares.rol_superior(current_user_rol, miembro_empresa_target_rol):
+            raise exceptions.EmpresaMiembroDeleteError()
+    
         servicios_base = db.query(models.ServicioBase).join(models.Sucursal).filter(
             models.Sucursal.empresa_id == empresa_id,
             models.ServicioBase.profesional_id == target_id,
-        ).order_by(models.ServicioBase.id.asc()).with_for_update().all()
+        ).order_by(models.ServicioBase.id.asc()).with_for_update(of=models.ServicioBase).all()
 
         ids_servicios_base = [s.id for s in servicios_base]
 
@@ -475,7 +485,7 @@ def get_notificaciones(
     query = db.query(models.Notificacion).filter(
         models.Notificacion.usuario_id == usuario_id,
         models.Notificacion.empresa_id == empresa_id,
-
+        models.Notificacion.fecha_hora_minima_de_envio <= timezone.to_naive_utc(timezone.now_utc()),
     )
 
     # Aplicar paginación por cursor si se envió id_ultimo
@@ -510,6 +520,7 @@ def get_notificaciones_nuevas(db: Session, empresa_id: int, usuario_id: int, id_
     notificaciones_nuevas = db.query(models.Notificacion).filter(
         models.Notificacion.usuario_id == usuario_id,
         models.Notificacion.empresa_id == empresa_id,
+        models.Notificacion.fecha_hora_minima_de_envio <= timezone.to_naive_utc(timezone.now_utc()),
         models.Notificacion.id > id_posterior,
     ).order_by(models.Notificacion.id.desc()).all()
 

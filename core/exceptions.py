@@ -26,7 +26,8 @@ class UserEmailNotVerifiedError(UserError):
     status_code = 403
     code = "USER_EMAIL_NOT_VERIFIED"
     default_message = (
-        "Email de usuario registrado pero pendiente de verificación. Por favor, confirma tu cuenta mediante el enlace enviado a tu correo para poder acceder a ella."
+        "Email de usuario registrado pero pendiente de verificación. "
+        "Por favor, confirma tu cuenta mediante el enlace enviado a tu correo para poder acceder a ella."
     )
 
 class UserAlreadyExistsError(UserError):
@@ -37,7 +38,7 @@ class UserAlreadyExistsError(UserError):
 class UserBlockedBySucursalError(UserError):
     status_code = 403
     code = "USER_BLOCKED_BY_SUCURSAL"
-    default_message = "Fuiste bloqueado por {nombre}"
+    default_message = "Fuiste bloqueado por {nombre_empresa}"
 
 # ------------------ Domain Empresa Errores ------------------ #
 
@@ -77,6 +78,14 @@ class EmpresaMiembroAlreadyExistsError(EmpresaError):
     status_code = 409
     code = "EMPRESA_MIEMBRO_ALREADY_EXISTS"
     default_message = "El usuario ya es miembro de la empresa"
+
+class EmpresaMiembroAlreadyExistsInAnySucursalError(EmpresaError):
+    status_code = 409
+    code = "EMPRESA_MIEMBRO_ALREADY_EXISTS_IN_ANY_SUCURSAL"
+    default_message = (
+        "No se puede agregar al usuario como miembro de la empresa con un rol global, "
+        "debido a que ya es miembro de la sucursal {nombre_sucursal}"
+    )
 
 class EmpresaPropietarioOutError(EmpresaError):
     status_code = 409
@@ -146,6 +155,11 @@ class SucursalNotFoundError(SucursalError):
     code = "SUCURSAL_NOT_FOUND"
     default_message = "Sucursal no encontrada"
 
+class SucursalDeactivatedError(SucursalError):
+    status_code = 404
+    code = "SUCURSAL_DEACTIVATED"
+    default_message = "Sucursal fuera de servicio"
+
 class SucursalAlreadyExistsWithNameError(SucursalError):
     status_code = 409
     code = "SUCURSAL_ALREADY_EXISTS_WITH_NAME"
@@ -175,11 +189,6 @@ class SucursalDeactivateWithTurnosConfirmadosError(SucursalError):
     status_code = 409
     code = "SUCURSAL_DEACTIVATE_WITH_TURNOS_CONFIRMADOS"
     default_message = "No se puede desactivar una sucursal que posee turnos confirmados"
-
-class SucursalDeactivatedError(SucursalError):
-    status_code = 404
-    code = "SUCURSAL_DEACTIVATED"
-    default_message = "Sucursal fuera de servicio"
 
 class SucursalMiembroNotFoundError(SucursalError):
     status_code = 404
@@ -301,16 +310,6 @@ class SucursalMiembroAddError(SucursalError):
 class SucursalInvalidSelfRemovalError(SucursalError):
     code = "SUCURSAL_INVALID_SELF_REMOVAL"
     default_message = "No se puede abandonar como miembro a una sucursal desde este flujo"
-
-class SucursalAlreadyExistsInFavoritosError(SucursalError):
-    status_code = 409
-    code = "SUCURSAL_ALREADY_EXISTS_IN_FAVORITOS"
-    default_message = "La sucursal ya se encuentra en favoritos"
-
-class SucursalDoesNotExistInFavoritosError(SucursalError):
-    status_code = 404
-    code = "SUCURSAL_DOES_NOT_EXIST_IN_FAVORITOS"
-    default_message = "La sucursal no se encuentra en favoritos"
 
 class SucursalPermissionDeniedError(SucursalError):
     status_code = 403

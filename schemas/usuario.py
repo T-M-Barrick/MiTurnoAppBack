@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, date, time
 from typing import Self
 
-from pydantic import BaseModel, EmailStr, SecretStr, Field, conint, condecimal, constr, conlist, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, SecretStr, Field, conint, condecimal, constr, conlist, field_validator, model_validator
 
 from schemas.common import (
     Telefono,
@@ -25,9 +25,15 @@ class UserCreate(BaseModel):
     nombre: constr(min_length=1, max_length=50)
     email: EmailStr = Field(..., max_length=255)
     password: SecretStr = Field(..., min_length=8, max_length=128)
-    recordatorio: conint(ge=0, le=1410, multiple_of=30) | None
+    recordatorio: conint(ge=30, le=1410, multiple_of=30) | None
     telefonos: conlist(Telefono, min_items=1)
     direcciones: conlist(DireccionCreate, min_items=1)
+
+    @field_validator("email", mode="after")
+    @classmethod
+    def normalizar_email(cls, value: EmailStr) -> str:
+        # Importante: .strip() elimina espacios invisibles
+        return value.lower().strip()
 
     @field_validator("password", mode="after")
     @classmethod
@@ -36,7 +42,7 @@ class UserCreate(BaseModel):
         validate_password(value.get_secret_value())
         return value
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class SucursalOut(BaseModel):
     id: conint(ge=1)
@@ -50,7 +56,7 @@ class SucursalOut(BaseModel):
     direccion: DireccionOut
     logo_url: constr(min_length=1, max_length=255) | None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class TurnoUserOut(BaseModel):
     id: conint(ge=1)
@@ -68,14 +74,14 @@ class TurnoUserOut(BaseModel):
     profesional_nombre: constr(min_length=1, max_length=50) | None
     created_at: datetime
     estado_turno: EstadoTurno
-    recordatorio: conint(ge=0, le=1410, multiple_of=30) | None
+    recordatorio: conint(ge=30, le=1410, multiple_of=30) | None
 
     @field_validator("fecha_hora", "created_at", mode="after")
     @classmethod
     def validar_fecha_hora_utc(cls, value: datetime) -> datetime:
         return validate_aware_utc(value)
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class UserLoginOut(BaseModel):
     id: conint(ge=1)
@@ -83,20 +89,20 @@ class UserLoginOut(BaseModel):
     apellido: constr(min_length=1, max_length=50)
     nombre: constr(min_length=1, max_length=50)
     email: EmailStr = Field(..., max_length=255)
-    recordatorio: conint(ge=0, le=1410, multiple_of=30) | None
+    recordatorio: conint(ge=30, le=1410, multiple_of=30) | None
     telefonos: conlist(TelefonoConID, min_items=1)
     direcciones: conlist(DireccionOut, min_items=1)
     favoritos: list[SucursalOut]
     turnos: list[TurnoUserOut]
     notificaciones: NotificacionesOut
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class UserUpdateIn(BaseModel):
     dni: constr(regex=r"^[0-9]{6,8}$") | None = None
     apellido: constr(min_length=1, max_length=50) | None = None
     nombre: constr(min_length=1, max_length=50) | None = None
-    recordatorio: conint(ge=0, le=1410, multiple_of=30) | None = None
+    recordatorio: conint(ge=30, le=1410, multiple_of=30) | None = None
     telefonos: conlist(TelefonoConID, min_items=1) | None = None 
     direcciones: conlist(DireccionUpdateIn, min_items=1) | None = None
 
@@ -122,7 +128,7 @@ class UserUpdateIn(BaseModel):
 
         return values
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class UserUpdateOut(BaseModel):
     id: conint(ge=1)
@@ -130,11 +136,11 @@ class UserUpdateOut(BaseModel):
     apellido: constr(min_length=1, max_length=50)
     nombre: constr(min_length=1, max_length=50)
     email: EmailStr = Field(..., max_length=255)
-    recordatorio: conint(ge=0, le=1410, multiple_of=30) | None
+    recordatorio: conint(ge=30, le=1410, multiple_of=30) | None
     telefonos: conlist(TelefonoConID, min_items=1)
     direcciones: conlist(DireccionOut, min_items=1)
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class RolEmpresaOut(BaseModel):
     empresa_id: conint(ge=1)
@@ -142,7 +148,7 @@ class RolEmpresaOut(BaseModel):
     logo_empresa_url: constr(min_length=1, max_length=255) | None
     rol: RolEmpresa
     
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class RolSucursalOut(BaseModel):
     sucursal_id: conint(ge=1)
@@ -151,13 +157,13 @@ class RolSucursalOut(BaseModel):
     direccion: DireccionOut
     rol: RolSucursal
     
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class MisEmpresasOut(BaseModel): # para cuando un usuario pide las empresas en las que trabaja
     empresas: list[RolEmpresaOut]
     sucursales: list[RolSucursalOut]
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class ReservaTurnoUserIn(BaseModel):
     sucursal_id: conint(ge=1)
@@ -169,7 +175,7 @@ class ReservaTurnoUserIn(BaseModel):
     def validar_fecha_hora_utc(cls, value: datetime) -> datetime:
         return validate_aware_utc(value)
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 # Esto es para que el usuario pueda mandar que no le importa el profesional del servicio que está reservando.
 # El chequeo de que sea el mismo servicio o no se hace en la función crud.
@@ -192,7 +198,7 @@ class ReservaTurnoOpcionesUserIn(BaseModel):
 
         return self
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class TurnoEstadoUpdateIn(BaseModel):
     estado_turno: EstadoTurno
@@ -207,12 +213,12 @@ class TurnoEstadoUpdateIn(BaseModel):
 
         return self
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class TurnoRecordatorioUpdateIn(BaseModel):
-    minutos_antes: conint(ge=0, le=1410, multiple_of=30) | None
+    minutos_antes: conint(ge=30, le=1410, multiple_of=30) | None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class TurnoHistorialUser(BaseModel):
     sucursal: constr(min_length=1, max_length=100) # nombre completo (empresa - sucursal)
@@ -233,7 +239,7 @@ class TurnoHistorialUser(BaseModel):
     def validar_fecha_hora_utc(cls, value: datetime) -> datetime:
         return validate_aware_utc(value)
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class HistorialUserOut(BaseModel):
     historial: list[TurnoHistorialUser]
@@ -245,7 +251,7 @@ class HistorialUserOut(BaseModel):
     def validar_fecha_hora_utc(cls, value: datetime | None) -> datetime | None:
         return validate_aware_utc(value) if value else None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class TurnoActualDelServicio(BaseModel):
     id: conint(ge=1)
@@ -257,7 +263,7 @@ class TurnoActualDelServicio(BaseModel):
     def validar_fecha_hora_utc(cls, value: datetime) -> datetime:
         return validate_aware_utc(value)
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class ServicioUserConTurnosOut(BaseModel):
     id: conint(ge=1)
@@ -272,7 +278,7 @@ class ServicioUserConTurnosOut(BaseModel):
     turnos_actuales: list[TurnoActualDelServicio]
     excepciones_fechas: list[ExcepcionFechaServicioOut]
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 '''
 Ejemplo de respuesta real de pydantic dentro de un validator (no envía un 500, sino que envía un 422):

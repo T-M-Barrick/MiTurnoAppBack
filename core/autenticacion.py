@@ -25,7 +25,9 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 que ingresa (email + contraseña por ejemplo) con lo que está guardado en la base de datos. Si coincide, recibe el acceso a la cuenta.'''
 def authenticate(session: Session, email: str, password: str):
 
-    user = session.query(models.Usuario).filter_by(email=email).first()
+    email_normalizado = models.normalizar_email(email)
+
+    user = session.query(models.Usuario).filter_by(email_normalizado=email_normalizado).first()
 
     # Definimos contra qué vamos a comparar
     if user:
@@ -122,7 +124,9 @@ def verify_email_token(token: str):
 
 def generate_password_reset_token(session: Session, email: str) -> str:
 
-    user = session.query(models.Usuario).filter_by(email=email).first()
+    email_normalizado = models.normalizar_email(email)
+
+    user = session.query(models.Usuario).filter_by(email_normalizado=email_normalizado).first()
 
     if not user:
         raise exceptions.UserNotFoundError() # email no registrado
@@ -204,8 +208,10 @@ def generate_password_reset_otp(db: Session, telefono: str, email: str):
 
     if not usuario:
         raise exceptions.UserNotFoundError()
+    
+    email_normalizado = models.normalizar_email(email)
 
-    if usuario.email != email:
+    if usuario.email_normalizado != email_normalizado:
         raise exceptions.ForgotPasswordEmailMismatchError()
     
     if not usuario.email_verificado:

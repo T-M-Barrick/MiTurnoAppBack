@@ -1,15 +1,83 @@
+import unicodedata
+
 from sqlalchemy import (
     Column, Integer, String,
-    SmallInteger, LargeBinary, ForeignKey,
+    SmallInteger, ForeignKey,
     DateTime, Date, Time,
     Float, Numeric, Boolean,
-    UniqueConstraint, Index, CheckConstraint,
+    Index, UniqueConstraint, CheckConstraint,
+    func, or_, text, event, select,
 )
-from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import relationship, validates
+from sqlalchemy.dialects.postgresql import JSONB, ExcludeConstraint
 
 from core.database import Base
 from core import constantes
+
+def normalizar_email(email: str | None) -> str | None:
+    if email is None:
+        return None
+
+    local, domain = email.split('@')
+
+    if domain.startswith(("gmail.com", "googlemail.com")):
+        domain = "gmail.com"
+        local = local.replace('.', '').split('+')[0]
+    elif domain.startswith(("outlook.com", "hotmail.com", "icloud.com", "me.com", "proton.me")):
+        local = local.split('+')[0]
+    elif domain.startswith(("yahoo.com", "ymail.com")):
+        local = local.split('-')[0].split('+')[0]
+    else:
+        local = local.split('+')[0]
+
+    return f"{local}@{domain}"
+
+def quitar_acentos(texto: str) -> str:
+    if not texto:
+        return texto
+
+    texto = unicodedata.normalize("NFKD", texto)
+    return "".join(c for c in texto if not unicodedata.combining(c))
+
+def generar_busqueda_texto_para_sucursal(target, connection):
+
+    empresa_nombre = None
+    empresa_rubro = None
+    empresa_rubro2 = None
+
+    if target.empresa_id:
+        result = connection.execute(
+            select(
+                Empresa.nombre,
+                Empresa.rubro,
+                Empresa.rubro2,
+            ).where(Empresa.id == target.empresa_id)
+        ).first()
+
+        if result:
+            empresa_nombre, empresa_rubro, empresa_rubro2 = result
+
+    texto = " ".join(filter(None, [
+        target.nombre,
+        empresa_nombre,
+        empresa_rubro,
+        empresa_rubro2,
+    ])).lower()
+
+    return quitar_acentos(texto)
+
+def generar_busqueda_texto_para_cliente(target):
+    texto = " ".join(filter(None, [
+        target.dni,
+        target.apellido,
+        target.nombre,
+        target.email,
+        target.telefono,
+        target.telefono2,
+        target.observacion
+    ])).lower()
+
+    return quitar_acentos(texto)
 
 class Usuario(Base):
     __tablename__ = "usuario"
@@ -18,14 +86,20 @@ class Usuario(Base):
     dni = Column(String(8), nullable=False)
     apellido = Column(String(50), nullable=False) # nullable=False es NOT NULL
     nombre = Column(String(50), nullable=False)
-    email = Column(String(255), unique=True, nullable=False)
+    email = Column(String(255), nullable=False)
+    email_normalizado = Column(String(255), unique=True, nullable=False)
     email_verificado = Column(Boolean, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     recordatorio_minutos_antes = Column(SmallInteger, nullable=True)
     fecha_hora_alta = Column(DateTime, nullable=True)
 
+    @validates("email")
+    def guardar_email_normalizado(self, key, value):
+        self.email_normalizado = normalizar_email(value)
+        return value
+
     __table_args__ = (
-        CheckConstraint("dni REGEXP '^[0-9]{6,8}$'", name="ck_usuario_dni_6_a_8_digitos"),
+        CheckConstraint("dni ~ '^[0-9]{6,8}$'", name="ck_usuario_dni_6_a_8_digitos"),
         CheckConstraint("recordatorio_minutos_antes >= 0", name="ck_usuario_recordatorio_por_defecto"),
     )
 
@@ -55,17 +129,23 @@ class Empresa(Base):
 
     id = Column(Integer, primary_key=True)
     cuit = Column(String(11), nullable=False)
-    nombre = Column(String(50, collation=constantes.COLLATION_MYSQL_8), nullable=False) # La collation hace que no distinga tildes y mayúsculas y minúsculas
-    email = Column(String(255), unique=True, nullable=False)
+    nombre = Column(String(50), nullable=False)
+    email = Column(String(255), nullable=False)
+    email_normalizado = Column(String(255), unique=True, nullable=False)
     email_verificado = Column(Boolean, nullable=False)
-    rubro = Column(String(100, collation=constantes.COLLATION_MYSQL_8), nullable=True)
-    rubro2 = Column(String(100, collation=constantes.COLLATION_MYSQL_8), nullable=True)
+    rubro = Column(String(100), nullable=True)
+    rubro2 = Column(String(100), nullable=True)
     logo_url = Column(String(255), nullable=True)
     logo_public_id = Column(String(50), nullable=True)
     fecha_hora_alta = Column(DateTime, nullable=True)
 
+    @validates("email")
+    def guardar_email_normalizado(self, key, value):
+        self.email_normalizado = normalizar_email(value)
+        return value
+
     __table_args__ = (
-        CheckConstraint("cuit REGEXP '^[0-9]{11}$'", name="ck_empresa_cuit_11_digitos"),
+        CheckConstraint("cuit ~ '^[0-9]{11}$'", name="ck_empresa_cuit_11_digitos"),
     )
 
     # Relationships
@@ -78,18 +158,30 @@ class Sucursal(Base):
 
     id = Column(Integer, primary_key=True)
     empresa_id = Column(Integer, ForeignKey("empresa.id"), nullable=False, index=True)
-    nombre = Column(String(50, collation=constantes.COLLATION_MYSQL_8), nullable=True)
-    email = Column(String(255), unique=True, nullable=True)
+    nombre = Column(String(50), nullable=True)
+    email = Column(String(255), nullable=True)
+    email_normalizado = Column(String(255), unique=True, nullable=True)
     email_verificado = Column(Boolean, nullable=True)
+    busqueda_texto = Column(String, nullable=True)
     reserva_publica_habilitada = Column(Boolean, nullable=False)
     calificacion = Column(Numeric(4, 2), nullable=True)
     activa = Column(Boolean, nullable=False)
 
+    @validates("email")
+    def guardar_email_normalizado(self, key, value):
+        self.email_normalizado = normalizar_email(value)
+        return value
+
     __table_args__ = (
-        UniqueConstraint("empresa_id", "nombre", name="uq_sucursal_empresa_nombre"),
-        # Lamentablemente la restricción UNIQUE en SQL permite 2 sucursales de la misma empresa con nombres
-        # NULL, por lo que si no viene con nombre, entonces deberemos chequear en el back primero antes
-        # de modificar o crear una sucursal si ya existe una sucursal de la misma empresa con nombre NULL. cambiar
+        UniqueConstraint(empresa_id, nombre, name="uq_sucursal_empresa_nombre", postgresql_nulls_not_distinct=True),
+        Index(
+            "ix_sucursal_busqueda_texto_trigram",
+            text("busqueda_texto gin_trgm_ops"),
+            postgresql_using="gin",
+            postgresql_where=text(
+                "activa = true AND reserva_publica_habilitada = true"
+            ),
+        ),
         CheckConstraint("calificacion BETWEEN 0 AND 10", name="ck_sucursal_calificacion_0_10"),
     )
 
@@ -103,25 +195,47 @@ class Sucursal(Base):
     bloqueos = relationship("BloqueoSucursal", back_populates="sucursal")
     notificaciones = relationship("Notificacion", back_populates="sucursal")
 
+@event.listens_for(Sucursal, "before_insert")
+def before_insert_sucursal(mapper, connection, target):
+    target.busqueda_texto = generar_busqueda_texto_para_sucursal(target, connection)
+
+
+@event.listens_for(Sucursal, "before_update")
+def before_update_sucursal(mapper, connection, target):
+    target.busqueda_texto = generar_busqueda_texto_para_sucursal(target, connection)
+
 class Cliente(Base):
     __tablename__ = "cliente_sucursal"
 
     id = Column(Integer, primary_key=True)
     sucursal_id = Column(Integer, ForeignKey("sucursal.id"), nullable=False)
     dni = Column(String(8), nullable=False)
-    apellido = Column(String(50, collation=constantes.COLLATION_MYSQL_8), nullable=False)
-    nombre = Column(String(50, collation=constantes.COLLATION_MYSQL_8), nullable=False)
-    email = Column(String(255, collation=constantes.COLLATION_MYSQL_8), nullable=False)
+    apellido = Column(String(50), nullable=False)
+    nombre = Column(String(50), nullable=False)
+    email = Column(String(255), nullable=False)
+    email_normalizado = Column(String(255), nullable=False)
     telefono = Column(String(30), nullable=True)
     telefono2 = Column(String(30), nullable=True)
-    observacion = Column(String(500, collation=constantes.COLLATION_MYSQL_8), nullable=True)
+    observacion = Column(String(500), nullable=True)
+    busqueda_texto = Column(String, nullable=True)
     fecha_hora_alta = Column(DateTime, nullable=False)
     activo = Column(Boolean, nullable=False)
 
+    @validates("email")
+    def guardar_email_normalizado(self, key, value):
+        self.email_normalizado = normalizar_email(value)
+        return value
+
     __table_args__ = (
-        UniqueConstraint("sucursal_id", "email", name="uq_cliente_sucursal_email"),
-        Index("sucursal_id", "activo", "id", name="ix_cliente_sucursal_activo_id"),
-        CheckConstraint("dni REGEXP '^[0-9]{6,8}$'", name="ck_cliente_sucursal_dni_6_a_8_digitos"),
+        Index("ix_cliente_sucursal_activo_id", sucursal_id, activo, id),
+        # Índice trigram para búsqueda más rápida con %{search}%
+        Index(
+            "ix_cliente_busqueda_texto_trigram",
+            text("busqueda_texto gin_trgm_ops"),
+            postgresql_using="gin",
+        ),
+        UniqueConstraint(sucursal_id, email_normalizado, name="uq_cliente_sucursal_email_normalizado"),
+        CheckConstraint("dni ~ '^[0-9]{6,8}$'", name="ck_cliente_sucursal_dni_6_a_8_digitos"),
         CheckConstraint("length(telefono) >= 7", name="ck_cliente_sucursal_telefono_len"),
         CheckConstraint("length(telefono2) >= 7", name="ck_cliente_sucursal_telefono2_len"),
     )
@@ -129,6 +243,15 @@ class Cliente(Base):
     # Relationships
     sucursal = relationship("Sucursal", back_populates="clientes")
     bloqueo = relationship("BloqueoSucursal", back_populates="cliente", uselist=False)
+
+@event.listens_for(Cliente, "before_insert")
+def before_insert_cliente(mapper, connection, target):
+    target.busqueda_texto = generar_busqueda_texto_para_cliente(target)
+
+
+@event.listens_for(Cliente, "before_update")
+def before_update_cliente(mapper, connection, target):
+    target.busqueda_texto = generar_busqueda_texto_para_cliente(target)
 
 class Telefono(Base):
     __tablename__ = "telefono"
@@ -206,13 +329,16 @@ class Turno(Base):
     recordatorio_enviado = Column(Boolean, nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("usuario_id", "servicio_id", "fecha_hora", name="uq_turno_usuario_servicio_fecha"),
-        UniqueConstraint("cliente_id", "servicio_id", "fecha_hora", name="uq_turno_cliente_servicio_fecha"),
-        Index("usuario_id", "eliminado_por_usuario", name="ix_turno_usuario_eliminado"),
-        Index("sucursal_id", "eliminado_por_sucursal", name="ix_turno_sucursal_eliminado"),
-        Index("servicio_id", "estado_turno_sucursal_id", name="ix_turno_servicio_estado_turno"),
-        Index("profesional_id", "estado_turno_sucursal_id", name="ix_turno_profesional_estado_turno"),
-        Index("recordatorio_fecha_hora", "recordatorio_enviado", "estado_turno_usuario_id", name="ix_turno_enviar_recordatorios"),
+        Index("ix_turno_usuario_eliminado_fecha_hora", usuario_id, eliminado_por_usuario, fecha_hora),
+        Index("ix_turno_sucursal_eliminado_fecha_hora", sucursal_id, eliminado_por_sucursal, fecha_hora),
+        Index("ix_turno_servicio_estado_turno_fecha_hora", servicio_id, estado_turno_sucursal_id, fecha_hora),
+        Index("ix_turno_profesional_estado_turno", profesional_id, estado_turno_sucursal_id),
+        Index("ix_turno_enviar_recordatorios", recordatorio_enviado, estado_turno_usuario_id, recordatorio_fecha_hora),
+        Index(
+            "ix_turno_limpieza", fecha_hora, postgresql_where=or_(eliminado_por_usuario == False, eliminado_por_sucursal == False)
+        ),
+        UniqueConstraint(usuario_id, servicio_id, fecha_hora, name="uq_turno_usuario_servicio_fecha"),
+        UniqueConstraint(cliente_id, servicio_id, fecha_hora, name="uq_turno_cliente_servicio_fecha"),
         CheckConstraint("servicio_id >= 1", name="ck_turno_servicio_id_pos"),
         CheckConstraint("duracion > 0", name="ck_turno_duracion_pos"),
         CheckConstraint("precio >= 0", name="ck_turno_precio_pos"),
@@ -259,11 +385,13 @@ class ServicioBase(Base):
     cancelacion_limitada = Column(Boolean, nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("sucursal_id", "nombre", "profesional_id", name="uq_servicio_sucursal_nombre_profesional"),
-        # Lamentablemente la restricción UNIQUE en SQL permite 2 servicios de la misma sucursal con nombres
-        # iguales y profesional NULL, por lo que si no tiene profesional, entonces deberemos chequear en el back
-        # primero antes de modificar o crear un servicio si ya existe un servicio de la misma sucursal con nombre
-        # igual y profesional NULL.
+        UniqueConstraint(
+            sucursal_id,
+            nombre,
+            profesional_id,
+            name="uq_servicio_sucursal_nombre_profesional",
+            postgresql_nulls_not_distinct=True,
+        ),
         CheckConstraint("minutos_min_reserva >= 0", name="ck_servicio_minutos_min_reserva"),
         CheckConstraint(
             "dias_max_reserva >= 0", name="ck_servicio_dias_max_reserva"
@@ -289,11 +417,25 @@ class Servicio(Base):
     modify_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
-        # Hay que agregar las vigencias que no se superpongan para el mismo servicio_base_id. cambiar
+        Index("ix_servicio_servicio_base_id", servicio_base_id),
         CheckConstraint("duracion > 0", name="ck_servicio_duracion_pos"),
         CheckConstraint("precio >= 0", name="ck_servicio_precio_pos"),
         CheckConstraint(
             "vigente_hasta IS NULL OR vigente_desde <= vigente_hasta", name="ck_servicio_fecha_franja_valida"
+        ),
+        # Constraint para que los intervalos de fechas de servicios de un mismo servicio_base no se superpongan ni un día
+        ExcludeConstraint(
+            ("servicio_base_id", "="),
+            (
+                func.daterange(
+                    vigente_desde,
+                    func.coalesce(vigente_hasta, text("'infinity'")),
+                    "[]", # rango cerrado, ni un día puede coincidir
+                ),
+                "&&",
+            ),
+            name="ex_servicio_rangos_de_vigencia_no_superpuestos",
+            using="gist",
         ),
     )
 
@@ -313,16 +455,30 @@ class Disponibilidad(Base):
     cant_turnos_max = Column(Integer, nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("servicio_id", "dia", "hora_inicio",
-            "intervalo", name="uq_disponibilidad_servicio_dia_hora_inicio_intervalo"),
-        CheckConstraint("dia BETWEEN 0 AND 6", name="ck_dia_semana_0_6"),
-        CheckConstraint("hora_inicio <= hora_fin", name="ck_horario_valido"),
+        Index("ix_disponibilidad_servicio_id", servicio_id),
+        CheckConstraint("dia BETWEEN 0 AND 6", name="ck_disponibilidad_dia_semana_0_6"),
+        CheckConstraint("hora_inicio <= hora_fin", name="ck_disponibilidad_horario_valido"),
         CheckConstraint(
-            "intervalo > 0", name="ck_intervalo_pos"
+            "intervalo > 0", name="ck_disponibilidad_intervalo_pos"
         ), # si la dejo ser 0, después puede surgir problema cuando divida algo por este atributo intervalo
         CheckConstraint(
             "cant_turnos_max >= 0", name="ck_disponibilidad_cant_turnos_max_pos"
         ), # puede ser 0 ya que quizás el admin quiso sacar temporalmente la disponibilidad para ese día en el servicio
+
+        # Constraint para que los bloques horarios de disponibilidades de un mismo servicio y día no se superpongan ni un minuto
+        ExcludeConstraint(
+            ("servicio_id", "="),
+            (
+                func.tsrange(
+                    hora_inicio,
+                    hora_fin,
+                    "[]", # rango cerrado, ni un minuto puede coincidir
+                ),
+                "&&", # operador "solapamiento"
+            ),
+            name="ex_disponibilidad_rangos_horarios_no_superpuestos",
+            using="gist",
+        ),
     )
 
     # Relationships
@@ -338,8 +494,22 @@ class ExcepcionFechaServicio(Base):
     motivo = Column(String(255), nullable=True)
 
     __table_args__ = (
-        UniqueConstraint("servicio_base_id", "fecha_inicio", name="uq_excepcion_servicio_fecha_franja"), # cambiar por superpos de intervalos
+        Index("ix_excepcion_servicio_base_id", servicio_base_id),
         CheckConstraint("fecha_inicio <= fecha_fin", name="ck_excepcion_fecha_franja_valida"),
+        # Constraint para que los intervalos de fechas de excepciones (bloqueos) de un mismo servicio_base no se superpongan ni un día
+        ExcludeConstraint(
+            ("servicio_base_id", "="),
+            (
+                func.daterange(
+                    fecha_inicio,
+                    fecha_fin,
+                    "[]", # rango cerrado, ni un día puede coincidir
+                ),
+                "&&",
+            ),
+            name="ex_excepcion_fecha_servicio_rangos_de_fechas_no_superpuestos",
+            using="gist",
+        ),
     )
 
     servicio_base = relationship("ServicioBase", back_populates="excepciones_fechas")
@@ -353,7 +523,7 @@ class Miembro_Empresa(Base):
     rol_id = Column(SmallInteger, ForeignKey("rol.id"), nullable=False) # 1: 'PROPIETARIO' o 2: 'GERENTE_EMPRESA'
 
     __table_args__ = (
-        UniqueConstraint("usuario_id", "empresa_id", name="uq_m_e_usuario_empresa"),
+        UniqueConstraint(usuario_id, empresa_id, name="uq_m_e_usuario_empresa"),
     )
 
     # Relationships
@@ -370,7 +540,7 @@ class Miembro_Sucursal(Base):
     rol_id = Column(SmallInteger, ForeignKey("rol.id"), nullable=False) # 3: 'GERENTE_SUCURSAL' o 4: 'EMPLEADO'
 
     __table_args__ = (
-        UniqueConstraint("usuario_id", "sucursal_id", name="uq_m_s_usuario_sucursal"),
+        UniqueConstraint(usuario_id, sucursal_id, name="uq_m_s_usuario_sucursal"),
     )
 
     # Relationships
@@ -395,7 +565,7 @@ class BloqueoSucursal(Base):
     created_at = Column(DateTime, nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("sucursal_id", "cliente_id", name="uq_s_b_sucursal_cliente"),
+        UniqueConstraint(sucursal_id, cliente_id, name="uq_s_b_sucursal_cliente"),
     )
 
     # Relationships
@@ -427,12 +597,14 @@ class Notificacion(Base):
     tipo = Column(String(50), nullable=False)
     extra_data = Column(JSONB, nullable=True)
     created_at = Column(DateTime, nullable=False)
+    fecha_hora_minima_de_envio = Column(DateTime, nullable=False)
     leida = Column(Boolean, nullable=False)
 
     __table_args__ = (
-        Index("usuario_id", "id", name="ix_notificacion_usuario_id_id"),
-        Index("usuario_id", "empresa_id", "id", name="ix_notificacion_usuario_id_empresa_id_id"),
-        Index("usuario_id", "sucursal_id", "id", name="ix_notificacion_usuario_id_sucursal_id_id"),
+        Index("ix_notificacion_usuario_id_fecha_hora_id", usuario_id, fecha_hora_minima_de_envio, id),
+        Index("ix_notificacion_usuario_id_empresa_id_fecha_hora_id", usuario_id, empresa_id, fecha_hora_minima_de_envio, id),
+        Index("ix_notificacion_usuario_id_sucursal_id_fecha_hora_id", usuario_id, sucursal_id, fecha_hora_minima_de_envio, id),
+        Index("ix_notificacion_limpieza", leida, created_at),
         CheckConstraint(
             "NOT (empresa_id IS NOT NULL AND sucursal_id IS NOT NULL)",
             name="ck_notificacion_empresa_sucursal"
@@ -448,13 +620,17 @@ class LimiteEmail(Base):
     __tablename__ = "limite_email"
 
     id = Column(Integer, primary_key=True)
-    email = Column(String(255), nullable=False)
+    email_normalizado = Column(String(255), nullable=False)
     accion = Column(String(50), nullable=False)
     conteo = Column(Integer, nullable=False)
     inicio_ventana = Column(DateTime, nullable=False)
+    
+    @validates("email_normalizado")
+    def guardar_email_normalizado(self, key, value):
+        return normalizar_email(value)
 
     __table_args__ = (
-        UniqueConstraint("email", "accion", name="uq_limite_email_email_accion"),
+        UniqueConstraint(email_normalizado, accion, name="uq_limite_email_email_normalizado_accion"),
         CheckConstraint("conteo BETWEEN 1 AND 100", name="ck_limite_email_conteo_valido"),
     )
 
@@ -493,6 +669,10 @@ class Blacklist(Base):
     expires_at = Column(DateTime, nullable=False, index=True)
     revoked_at = Column(DateTime, nullable=False)
 
+    __table_args__ = (
+        Index("ix_blacklist_limpieza", expires_at),
+    )
+
 class Estado_Turno(Base):
     __tablename__ = "estado_turno" # Esta tabla ya viene con estados puestos
 
@@ -507,5 +687,5 @@ class Rol(Base):
     tipo = Column(String(50), nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("nombre", "tipo", name="uq_rol_nombre_tipo"),
+        UniqueConstraint(nombre, tipo, name="uq_rol_nombre_tipo"),
     )

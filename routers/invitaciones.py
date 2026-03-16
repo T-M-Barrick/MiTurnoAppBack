@@ -31,7 +31,7 @@ def invitar_empleado(
     sucursal_id = invitacion.sucursal_id
 
     usuario, entidad = crud_invitaciones.invitar_empleado(
-        db, empresa_id, sucursal_id, current_user.id, usuario_email, rol
+        db, empresa_id, sucursal_id, current_user.id, usuario_email, rol,
     )
 
     if usuario:
@@ -69,7 +69,9 @@ def invitar_empleado(
     ###################################
     from mappers import empresa as mappers_empresa
 
-    nuevo_miembro = db.query(models.Usuario).filter_by(email=usuario_email).first()
+    email_normalizado = models.normalizar_email(usuario_email)
+
+    nuevo_miembro = db.query(models.Usuario).filter_by(email_normalizado=email_normalizado).first()
 
     miembro = db.query(models.Miembro_Empresa).options(
         joinedload(models.Miembro_Empresa.usuario)).filter_by(

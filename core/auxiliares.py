@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import unicodedata
 import math
 import io
 
@@ -6,7 +7,7 @@ import requests
 from PIL import Image
 
 from core.constantes import DIAS_NOMBRES, MAX_LOGO_SIZE
-from core import exceptions
+from core import exceptions, timezone
 
 def mapear_nombre_dia_semana(dia: int):
 
@@ -19,6 +20,13 @@ def nombre_empresa(empresa_nombre: str, sucursal_nombre: str | None):
     if sucursal_nombre:
         emp_nombre += f' - {sucursal_nombre}'
     return emp_nombre
+
+def quitar_acentos(texto: str) -> str:
+    if not texto:
+        return texto
+
+    texto = unicodedata.normalize("NFKD", texto)
+    return "".join(c for c in texto if not unicodedata.combining(c))
 
 def buscar_localidad(provincia: str, municipio: str, localidad: str, url: str):
     """
@@ -156,3 +164,31 @@ def validar_logo(logo_bytes: bytes):
                 )
     except Exception:
         raise exceptions.LogoInvalidError(field="logo")
+
+def formatear_fecha_hora_turno(fecha_hora_turno_aware_utc: datetime) -> str:
+
+    # Garantía defensiva (por si alguien se equivoca)
+    fecha_hora_turno_aware_utc = timezone.ensure_utc(fecha_hora_turno_aware_utc)
+
+    ahora_aware_utc = timezone.now_utc() # aware UTC
+
+    # Convertimos una sola vez a local
+    fecha_hora_turno_aware_local = timezone.utc_to_local(fecha_hora_turno_aware_utc) # lo convierte a aware horario local cambiándole la hora
+    ahora_aware_local = timezone.utc_to_local(ahora_aware_utc) # lo convierte a aware horario local cambiándole la hora
+
+    dia_local = fecha_hora_turno_aware_local.weekday() # devuelve 0, 1, 2, ..., 6
+    nombre_dia = mapear_nombre_dia_semana(dia_local) # le ponemos nombre a dia_local
+
+    fecha_local_str = fecha_hora_turno_aware_local.strftime("%d/%m") # pasamos al formato correspondiente en string
+    hora_local_str = fecha_hora_turno_aware_local.strftime("%H:%M") # pasamos al formato correspondiente en string
+
+    # MISMO DÍA (en horario local)
+    if fecha_hora_turno_aware_local.date() == ahora_aware_local.date():
+        return f"hoy {nombre_dia} {fecha_local_str} a las {hora_local_str} hs"
+
+    # MAÑANA (en horario local)
+    if fecha_hora_turno_aware_local.date() == ahora_aware_local.date() + timedelta(days=1):
+        return f"mañana {nombre_dia} {fecha_local_str} a las {hora_local_str} hs"
+
+    # OTRO DÍA
+    return f"el día {nombre_dia} {fecha_local_str} a las {hora_local_str} hs"

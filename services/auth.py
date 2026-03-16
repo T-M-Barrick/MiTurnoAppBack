@@ -47,11 +47,11 @@ def background_invitar_empleado(
             if sucursal_id:
 
                 token = autenticacion.create_access_token(
-                    data={"usuario_id": usuario_id, "sucursal_id": sucursal_id, "rol": rol},
+                    data={"usuario_id": usuario_id, "empresa_id": empresa_id, "sucursal_id": sucursal_id, "rol": rol},
                     expires_delta=timedelta(minutes=config.ACCESS_TOKEN_EXPIRE_MINUTES),
                 )
 
-            if not sucursal_id:
+            else:
 
                 token = autenticacion.create_access_token(
                     data={"usuario_id": usuario_id, "empresa_id": empresa_id, "rol": rol},

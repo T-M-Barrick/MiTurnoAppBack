@@ -3,19 +3,6 @@ from core import auxiliares, timezone
 from schemas import common as schemas_common
 from schemas import empresa as schemas_empresa
 
-# Convierte un objeto de la clase Empresa de SQLAlchemy en uno de clase EmpresaHomeOut de Pydantic
-def empresa_home_out(empresa, notificaciones, ultimo_cursor_id, miembro_rol):
-
-    empresa_out = schemas_empresa.EmpresaHomeOut(
-        id=empresa.id,
-        nombre=empresa.nombre,
-        logo_url=empresa.logo_url,
-        notificaciones=notificaciones_out(notificaciones, ultimo_cursor_id),
-        rol=miembro_rol,
-    )
-
-    return empresa_out
-
 def sucursal_perfil_out(sucursal):
 
     out = schemas_empresa.SucursalPerfilOut(
@@ -30,6 +17,20 @@ def sucursal_perfil_out(sucursal):
 
     return out
 
+# Convierte un objeto de la clase Empresa de SQLAlchemy en uno de clase EmpresaHomeOut de Pydantic
+def empresa_home_out(empresa, notificaciones, ultimo_cursor_id, miembro_rol):
+
+    empresa_out = schemas_empresa.EmpresaHomeOut(
+        id=empresa.id,
+        nombre=empresa.nombre,
+        logo_url=empresa.logo_url,
+        sucursales=[sucursal_perfil_out(sucursal) for sucursal in empresa.sucursales],
+        notificaciones=notificaciones_out(notificaciones, ultimo_cursor_id),
+        rol=miembro_rol,
+    )
+
+    return empresa_out
+
 def empresa_perfil_out(empresa, miembro_rol):
 
     empresa_out = schemas_empresa.EmpresaPerfilOut(
@@ -40,8 +41,8 @@ def empresa_perfil_out(empresa, miembro_rol):
         rubro=empresa.rubro,
         rubro2=empresa.rubro2,
         logo_url=empresa.logo_url,
-        rol=miembro_rol,
         sucursales=[sucursal_perfil_out(sucursal) for sucursal in empresa.sucursales],
+        rol=miembro_rol,
     )
 
     return empresa_out

@@ -12,6 +12,8 @@ from crud.common import (
     nuevo_estado_check,
     contar_turnos_superpuestos_servicio,
     tiene_turno_superpuesto,
+    crear_extra_data_notificacion,
+    guardar_notificacion,
 )
 from core import models, constantes, exceptions, autenticacion, auxiliares, mensajes, timezone
 from schemas import common as schemas_common
@@ -20,8 +22,10 @@ from schemas import usuario as schemas_usuario
 # Crear usuario
 def create_usuario(db: Session, user: schemas_usuario.UserCreate):
 
+    email_normalizado = models.normalizar_email(user.email)
+
     # Verificar si el email ya existe
-    usuario_existe = db.query(models.Usuario).filter_by(email=user.email).first()
+    usuario_existe = db.query(models.Usuario).filter_by(email_normalizado=email_normalizado).first()
     if usuario_existe and usuario_existe.email_verificado:
         raise exceptions.UserAlreadyExistsError()
     if usuario_existe and not usuario_existe.email_verificado:
@@ -61,7 +65,8 @@ def create_usuario(db: Session, user: schemas_usuario.UserCreate):
                 pais=d.pais,
                 lat=d.lat,
                 lng=d.lng,
-                aclaracion=d.aclaracion)
+                aclaracion=d.aclaracion,
+            )
 
             db.add(db_dir)
             db.flush()
@@ -94,7 +99,6 @@ def get_turnos(db: Session, usuario_id: int):
         joinedload(models.Turno.sucursal).joinedload(models.Sucursal.empresa),
         joinedload(models.Turno.sucursal).joinedload(models.Sucursal.direccion),
         joinedload(models.Turno.estado_turno_usuario), # Estado del turno del usuario
-        joinedload(models.Turno.recordatorio),
     )
     
     # Los que tienen fecha más antigua aparecerán más arriba que los de fecha más futura en el tiempo
@@ -123,8 +127,8 @@ def update(db: Session, user: models.Usuario, user_update: schemas_usuario.UserU
         # 1️⃣ Actualizar campos simples
         # ----------------------------
 
-        # Con user_update.dict(exclude_unset=True) convierto al schema temporalmente en diccionario excluyendo los campos del schema que no fueron enviados en el JSON
-        for attr, value in user_update.dict(exclude_unset=True).items():
+        # Con user_update.model_dump(exclude_unset=True) convierto al schema temporalmente en diccionario excluyendo los campos del schema que no fueron enviados en el JSON
+        for attr, value in user_update.model_dump(exclude_unset=True).items():
             if attr not in ["telefonos", "direcciones"]:
                 # setattr(objeto, atributo, valor) es una función de Python que asigna dinámicamente un valor a un atributo de un objeto
                 # en lugar de hacer user.apellido = "Fernández" o user.nombre = "Tomás" que es menos dinámico para este bucle
@@ -237,7 +241,6 @@ def get_turno(db: Session, turno_id: int):
         joinedload(models.Turno.sucursal).joinedload(models.Sucursal.empresa),
         joinedload(models.Turno.sucursal).joinedload(models.Sucursal.direccion),
         joinedload(models.Turno.estado_turno_usuario),
-        joinedload(models.Turno.recordatorio),
     ).filter(
         models.Turno.id == turno_id.
         models.Turno.eliminado_por_usuario == False,
@@ -273,19 +276,21 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
 
     if not sucursal.reserva_publica_habilitada:
         raise exceptions.SucursalReservaPublicaInhabilitadaError(nombre=nombre_completo_sucursal)
+    
+    cliente_email_normalizado = models.normalizar_email(usuario.email)
 
     bloqueo = (
         db.query(models.BloqueoSucursal)
         .join(models.Cliente)
         .filter(
             models.BloqueoSucursal.sucursal_id == sucursal_id,
-            models.Cliente.email == usuario.email,
+            models.Cliente.email_normalizado == cliente_email_normalizado,
         )
         .first()
     )
 
     if bloqueo:
-        raise exceptions.UserBlockedBySucursalError(nombre=nombre_completo_sucursal)
+        raise exceptions.UserBlockedBySucursalError(nombre_empresa=nombre_completo_sucursal)
 
     dia, hora = timezone.extraer_dia_y_hora_en_local(fecha_hora)
     fecha_local = timezone.utc_to_local(fecha_hora).date()
@@ -308,7 +313,7 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
                 models.Servicio.id == turno_posible.servicio_id,
                 models.Servicio.vigente_desde <= fecha_local,
                 or_(
-                    models.Servicio.vigente_hasta == None,
+                    models.Servicio.vigente_hasta.is_(None),
                     models.Servicio.vigente_hasta >= fecha_local,
                 ),
                 models.ServicioBase.sucursal_id == sucursal_id,
@@ -332,7 +337,7 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
                 models.Servicio.id == turno_posible.servicio_id,
                 models.Servicio.vigente_desde <= fecha_local,
                 or_(
-                    models.Servicio.vigente_hasta == None,
+                    models.Servicio.vigente_hasta.is_(None),
                     models.Servicio.vigente_hasta >= fecha_local,
                 ),
                 models.ServicioBase.sucursal_id == sucursal_id,
@@ -428,6 +433,19 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
     telefonos = usuario.telefonos
 
     try:
+        # Pongo estas queries ahora para poder bloquearlas antes que a disponibilidades para que
+        # no hayan ciclos de bloqueos con ningún otra función que sí bloquea antes a miembros que a disponibilidades
+
+        miembros_de_la_empresa = db.query(models.Miembro_Empresa).filter(
+            models.Miembro_Empresa.empresa_id == sucursal.empresa.id,
+        ).order_by(models.Miembro_Empresa.id.asc()).with_for_update().all()
+
+        miembros_de_la_sucursal = db.query(models.Miembro_Sucursal).options(
+            joinedload(models.Miembro_Sucursal.rol),
+        ).filter(
+            models.Miembro_Sucursal.sucursal_id == sucursal_id,
+        ).order_by(models.Miembro_Sucursal.id.asc()).with_for_update(of=models.Miembro_Sucursal).all()
+
         indices_disponibilidades = [tupla[0].id for tupla in servicios_posibles]
 
         disponibilidades = (
@@ -495,10 +513,12 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
         db.refresh(sucursal)
         if not sucursal.activa:
             raise exceptions.SucursalDeactivatedError()
+
+        cuando = auxiliares.formatear_fecha_hora_turno(fecha_hora)
         
         cliente = db.query(models.Cliente).filter_by(
             sucursal_id=sucursal_id,
-            email=usuario.email,
+            email_normalizado=cliente_email_normalizado,
         ).with_for_update().first()
 
         if cliente:
@@ -541,7 +561,45 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
             recordatorio_enviado=False,
         )            
         db.add(turno)
+        db.flush()
 
+        if turno.recordatorio_fecha_hora:
+            extra_data = crear_extra_data_notificacion(turno_id=turno.id, nombre_empresa=nombre_completo_sucursal, cuando=cuando)
+            guardar_notificacion(
+                db,
+                usuario_id,
+                "RECORDATORIO_USUARIO",
+                extra_data,
+                fecha_hora_minima_de_envio=turno.recordatorio_fecha_hora,
+            )
+
+        extra_data_base = crear_extra_data_notificacion(
+            turno_id=turno.id,
+            cliente_apellido=cliente.apellido,
+            cliente_nombre=cliente.nombre,
+            nombre_sucursal=sucursal.nombre,
+            cuando=cuando,
+        )
+        for m_e in miembros_de_la_empresa:
+            extra_data = extra_data_base.copy()
+            if m_e.usuario_id == turno.profesional_id:
+                extra_data["profesional_id"] = turno.profesional_id
+            guardar_notificacion(db, m_e.usuario_id, "TURNO_NUEVO_SUCURSAL", extra_data, empresa_id=sucursal.empresa_id)
+        
+        extra_data_base = crear_extra_data_notificacion(
+            turno_id=turno.id,
+            cliente_apellido=cliente.apellido,
+            cliente_nombre=cliente.nombre,
+            cuando=cuando,
+        )
+        for m_s in miembros_de_la_sucursal:
+            extra_data = extra_data_base.copy()
+            if m_s.usuario_id == turno.profesional_id:
+                extra_data["profesional_id"] = turno.profesional_id
+            if m_s.rol.nombre == 'EMPLEADO' and m_s.usuario_id != turno.profesional_id:
+                continue
+            guardar_notificacion(db, m_s.usuario_id, "TURNO_NUEVO_SUCURSAL", extra_data, sucursal_id=sucursal_id)
+        
         db.commit()
     except Exception:
         db.rollback()
@@ -587,6 +645,52 @@ def update_estado_turno(db: Session, usuario: models.Usuario, turno_id: int, tur
         if nuevo_estado == 'CANCELADO_POR_USUARIO':
             turno.estado_turno_sucursal_id = estado_obj.id
             email_cancelacion = True
+
+            db.query(models.Notificacion).filter(
+                models.Notificacion.usuario_id == usuario.id,
+                models.Notificacion.tipo == "RECORDATORIO_USUARIO",
+                models.Notificacion.extra_data["turno_id"].as_integer() == turno_id,
+            ).delete(synchronize_session=False)
+
+            cuando = auxiliares.formatear_fecha_hora_turno(inicio_turno)
+
+            cliente_email_normalizado = models.normalizar_email(usuario.email)
+
+            cliente = db.query(models.Cliente).filter_by(
+                sucursal_id=sucursal_id,
+                email_normalizado=cliente_email_normalizado,
+            ).with_for_update().first()
+
+            # nunca debería pasar que no exista ese cliente, pero por las dudas pongo el else
+            cliente_apellido = cliente.apellido if cliente else usuario.apellido
+            cliente_nombre = cliente.nombre if cliente else usuario.nombre
+
+            extra_data_base = crear_extra_data_notificacion(
+                turno_id=turno_id,
+                cliente_apellido=cliente_apellido,
+                cliente_nombre=cliente_nombre,
+                nombre_sucursal=sucursal.nombre,
+                cuando=cuando,
+            )
+            for m_e in miembros_de_la_empresa:
+                extra_data = extra_data_base.copy()
+                if m_e.usuario_id == turno.profesional_id:
+                    extra_data["profesional_id"] = turno.profesional_id
+                guardar_notificacion(db, m_e.usuario_id, "TURNO_CANCELADO_SUCURSAL", extra_data, empresa_id=sucursal.empresa_id)
+            
+            extra_data_base = crear_extra_data_notificacion(
+                turno_id=turno_id,
+                cliente_apellido=cliente_apellido,
+                cliente_nombre=cliente_nombre,
+                cuando=cuando,
+            )
+            for m_s in miembros_de_la_sucursal:
+                extra_data = extra_data_base.copy()
+                if m_s.usuario_id == turno.profesional_id:
+                    extra_data["profesional_id"] = turno.profesional_id
+                if m_s.rol.nombre == 'EMPLEADO' and m_s.usuario_id != turno.profesional_id:
+                    continue
+                guardar_notificacion(db, m_s.usuario_id, "TURNO_CANCELADO_SUCURSAL", extra_data, sucursal_id=sucursal.id)
         
         if nuevo_estado == 'CUMPLIDO' and turno_update.calificacion:
             # Guardar calificación
@@ -616,10 +720,11 @@ def update_estado_turno(db: Session, usuario: models.Usuario, turno_id: int, tur
         try:
             mensajes.send_turno_cancelado_email(
                 to_email=sucursal.empresa.email,
-                us_emp_nombre=f"{usuario.apellido}, {usuario.nombre}",
+                us_emp_nombre=f"{cliente_apellido}, {cliente_nombre}",
                 fecha_hora=inicio_turno,
                 servicio=turno.nombre_de_servicio,
-                motivo=turno_update.observacion)
+                motivo=turno_update.observacion,
+            )
         except exceptions.EmailSendFailedError:
             pass
 
@@ -627,10 +732,11 @@ def update_estado_turno(db: Session, usuario: models.Usuario, turno_id: int, tur
             if sucursal.email:
                 mensajes.send_turno_cancelado_email(
                     to_email=sucursal.email,
-                    us_emp_nombre=f"{usuario.apellido}, {usuario.nombre}",
+                    us_emp_nombre=f"{cliente_apellido}, {cliente_nombre}",
                     fecha_hora=inicio_turno,
                     servicio=turno.nombre_de_servicio,
-                    motivo=turno_update.observacion)
+                    motivo=turno_update.observacion,
+                )
         except exceptions.EmailSendFailedError:
             pass
 
@@ -777,21 +883,16 @@ GET /usuarios/sucursales?busqueda=peluq&lat=-35.456231$lng=-45.569842
 '''
 def get_sucursales(db: Session, search: str, lat: float, lng: float):
 
+    search = auxiliares.quitar_acentos(search.lower())
     palabra = f"%{search}%"
 
     sucursales = (
         db.query(models.Sucursal)
-        .join(models.Empresa) # para poder filtrar por nombre de empresa
         .join(models.ServicioBase) # hace que cargue solo las sucursales que tienen al menos un servicio base asociado
         .filter(
+            models.Sucursal.busqueda_texto.ilike(palabra),
             models.Sucursal.activa == True, # solo activas
             models.Sucursal.reserva_publica_habilitada == True, # solo las que permiten a los usuarios reservar
-            or_(
-                models.Sucursal.nombre.ilike(palabra),
-                models.Empresa.nombre.ilike(palabra),
-                models.Empresa.rubro.ilike(palabra),
-                models.Empresa.rubro2.ilike(palabra),
-            )
         )
         .options(
             joinedload(models.Sucursal.empresa),
@@ -830,18 +931,20 @@ def get_servicios_de_sucursal(db: Session, usuario_email: str, sucursal_id: int)
     if not sucursal.reserva_publica_habilitada:
         raise exceptions.SucursalReservaPublicaInhabilitadaError(nombre=nombre_sucursal)
     
+    cliente_email_normalizado = models.normalizar_email(usuario_email)
+    
     bloqueo = (
         db.query(models.BloqueoSucursal)
         .join(models.Cliente)
         .filter(
             models.BloqueoSucursal.sucursal_id == sucursal_id,
-            models.Cliente.email == usuario_email,
+            models.Cliente.email_normalizado == cliente_email_normalizado,
         )
         .first()
     )
 
     if bloqueo:
-        raise exceptions.UserBlockedBySucursalError(nombre=nombre_completo_sucursal)
+        raise exceptions.UserBlockedBySucursalError(nombre_empresa=nombre_completo_sucursal)
 
     servicios_base = (
         db.query(models.ServicioBase)
@@ -881,7 +984,7 @@ def add_favorito(db: Session, usuario_id: int, sucursal_id: int):
     ).first()
 
     if fav:
-        raise exceptions.SucursalAlreadyExistsInFavoritosError()
+        return sucursal
     
     try:
         db.add(models.Favorito(usuario_id=usuario_id, sucursal_id=sucursal_id))
@@ -898,13 +1001,11 @@ def delete_favorito(db: Session, usuario_id: int, sucursal_id: int):
         models.Favorito.usuario_id == usuario_id,
         models.Favorito.sucursal_id == sucursal_id,
     ).first()
-
-    if not fav:
-        raise exceptions.SucursalDoesNotExistInFavoritosError()
     
     try:
-        db.delete(fav)
-        db.commit()
+        if fav:
+            db.delete(fav)
+            db.commit()
     except Exception:
         db.rollback()
         raise
@@ -930,6 +1031,7 @@ def get_notificaciones(db: Session, usuario_id: int, leidas: bool | None = None,
     '''
     query = db.query(models.Notificacion).filter(
         models.Notificacion.usuario_id == usuario_id,
+        models.Notificacion.fecha_hora_minima_de_envio <= timezone.to_naive_utc(timezone.now_utc()),
     )
 
     # Aplicar paginación por cursor si se envió id_ultimo
@@ -959,6 +1061,7 @@ def get_notificaciones_nuevas(db: Session, usuario_id: int, id_posterior: int):
 
     notificaciones_nuevas = db.query(models.Notificacion).filter(
         models.Notificacion.usuario_id == usuario_id,
+        models.Notificacion.fecha_hora_minima_de_envio <= timezone.to_naive_utc(timezone.now_utc()),
         models.Notificacion.id > id_posterior,
     ).order_by(models.Notificacion.id.desc()).all()
 

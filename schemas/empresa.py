@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, date, time
 from typing import Self
 
-from pydantic import BaseModel, EmailStr, Field, conint, condecimal, constr, conlist, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, conint, condecimal, constr, conlist, field_validator, model_validator
 
 from schemas.common import (
     Telefono,
@@ -27,16 +27,13 @@ class EmpresaCreate(BaseModel):
     telefonos: list[Telefono] # se va a guardar en la sucursal que se hace por defecto
     direccion: DireccionCreate # obligatorio al crear una empresa (se va a guardar en la sucursal que se hace por defecto)
 
-    model_config = {"from_attributes": True}
+    @field_validator("email", mode="after")
+    @classmethod
+    def normalizar_email(cls, value: EmailStr) -> str:
+        # Importante: .strip() elimina espacios invisibles
+        return value.lower().strip()
 
-class EmpresaHomeOut(BaseModel):
-    id: conint(ge=1)
-    nombre: constr(min_length=1, max_length=50)
-    logo_url: constr(min_length=1, max_length=255) | None
-    notificaciones: NotificacionesOut
-    rol: RolEmpresa
-
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class SucursalPerfilOut(BaseModel):
     id: conint(ge=1)
@@ -47,7 +44,17 @@ class SucursalPerfilOut(BaseModel):
     telefonos: list[TelefonoConID]
     direccion: DireccionOut
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
+
+class EmpresaHomeOut(BaseModel):
+    id: conint(ge=1)
+    nombre: constr(min_length=1, max_length=50)
+    logo_url: constr(min_length=1, max_length=255) | None
+    sucursales: list[SucursalPerfilOut]
+    notificaciones: NotificacionesOut
+    rol: RolEmpresa
+
+    model_config = ConfigDict(from_attributes=True)
 
 class EmpresaPerfilOut(BaseModel):
     id: conint(ge=1)
@@ -57,10 +64,10 @@ class EmpresaPerfilOut(BaseModel):
     rubro: constr(min_length=1, max_length=100) | None
     rubro2: constr(min_length=1, max_length=100) | None
     logo_url: constr(min_length=1, max_length=255) | None
-    rol: RolEmpresa
     sucursales: list[SucursalPerfilOut]
+    rol: RolEmpresa
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class EmpresaUpdateIn(BaseModel):
     cuit: constr(regex=r"^[0-9]{11}$") | None = None
@@ -91,34 +98,34 @@ class EmpresaUpdateIn(BaseModel):
 
         return values
     
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class EmpresaLogoOut(BaseModel):
     logo_url: constr(min_length=1, max_length=255) | None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class MiembroEmpresaOut(BaseModel):
     miembro: MiembroOut
     rol: RolEmpresa # rol dentro de la empresa
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class SucursalDeMiembro(BaseModel):
     id: conint(ge=1)
     nombre: constr(min_length=1, max_length=50) | None # sin incluir el nombre original de la empresa; si la empresa tiene una sola sucursal, nombre es None sí o sí
     rol: RolSucursal # rol dentro de la sucursal
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class MiembroSucursalOut(BaseModel):
     miembro: MiembroOut
     sucursales: conlist(SucursalDeMiembro, min_items=1)
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class MiembrosEmpresaOut(BaseModel):
     miembros_empresa: list[MiembroEmpresaOut]
     miembros_sucursales: list[MiembroSucursalOut]
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)

@@ -86,7 +86,7 @@ def to_naive_utc(dt_utc: datetime) -> datetime:
     - Si entra aware horario local, lo convierte a naive UTC cambiándole la hora.
     - Si entra aware UTC, lo convierte a naive UTC sin cambiarle la hora, solo sacándole la etiqueta UTC.
 
-    USAR SIEMPRE antes de guardar en MySQL
+    USAR SIEMPRE antes de guardar en PostgreSQL
     """
     dt_utc = ensure_utc(dt_utc)
     return dt_utc.replace(tzinfo=None)

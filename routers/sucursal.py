@@ -440,7 +440,6 @@ def add_miembro_sucursal(
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
 ):
-
     # miembro es una lista de objetos Miembro_Sucursal
     miembro = crud_sucursal.add_miembro(db, sucursal_id, current_user.id, target_id, data.nuevo_rol)
 

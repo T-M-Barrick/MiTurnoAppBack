@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, date, time
 from typing import Self
 
-from pydantic import BaseModel, EmailStr, Field, conint, condecimal, constr, conlist, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, conint, condecimal, constr, conlist, field_validator, model_validator
 
 from schemas.common import (
     Telefono,
@@ -27,7 +27,7 @@ class SucursalCreate(BaseModel):
     telefonos: list[Telefono]
     direccion: DireccionCreate # obligatorio al crear una sucursal
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class SucursalHomeOut(BaseModel): # Esto es solo para los gerentes de sucursal y empleados
     id: conint(ge=1)
@@ -37,7 +37,7 @@ class SucursalHomeOut(BaseModel): # Esto es solo para los gerentes de sucursal y
     notificaciones: NotificacionesOut
     rol: RolSucursal
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class SucursalPerfilOut(BaseModel): # Esto es solo para los gerentes de sucursal y empleados
     id: conint(ge=1)
@@ -55,7 +55,7 @@ class SucursalPerfilOut(BaseModel): # Esto es solo para los gerentes de sucursal
     logo_url: constr(min_length=1, max_length=255) | None
     rol: RolSucursal
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class SucursalUpdateIn(BaseModel):
     nombre: constr(min_length=1, max_length=50) | None = None
@@ -85,7 +85,7 @@ class SucursalUpdateIn(BaseModel):
 
         return values
     
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class ClienteOut(BaseModel):
     id: conint(ge=1)
@@ -105,13 +105,13 @@ class ClienteOut(BaseModel):
     def validar_fecha_hora_utc(cls, value: datetime) -> datetime:
         return validate_aware_utc(value)
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class ClientesSucursalOut(BaseModel):
     clientes: list[ClienteOut]
     ultimo_cursor_id: conint(ge=1) | None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class ClienteCreate(BaseModel):
     dni: constr(regex=r"^[0-9]{6,8}$")
@@ -122,7 +122,13 @@ class ClienteCreate(BaseModel):
     telefono2: constr(regex=r"^\+[1-9][0-9]{5,28}$") | None
     observacion: constr(min_length=1, max_length=500) | None
 
-    model_config = {"from_attributes": True}
+    @field_validator("email", mode="after")
+    @classmethod
+    def normalizar_email(cls, value: EmailStr) -> str:
+        # Importante: .strip() elimina espacios invisibles
+        return value.lower().strip()
+
+    model_config = ConfigDict(from_attributes=True)
 
 class ClienteUpdateIn(BaseModel):
     dni: constr(regex=r"^[0-9]{6,8}$") | None = None
@@ -132,6 +138,12 @@ class ClienteUpdateIn(BaseModel):
     telefono: constr(regex=r"^\+[1-9][0-9]{5,28}$") | None = None
     telefono2: constr(regex=r"^\+[1-9][0-9]{5,28}$") | None = None
     observacion: constr(min_length=1, max_length=500) | None = None
+
+    @field_validator("email", mode="after")
+    @classmethod
+    def normalizar_email(cls, value: EmailStr) -> str:
+        # Importante: .strip() elimina espacios invisibles
+        return value.lower().strip()
 
     @model_validator(mode="before")
     @classmethod
@@ -155,7 +167,7 @@ class ClienteUpdateIn(BaseModel):
 
         return values
     
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class TurnoSucursalOut(BaseModel):
     id: conint(ge=1)
@@ -180,7 +192,7 @@ class TurnoSucursalOut(BaseModel):
     def validar_fecha_hora_utc(cls, value: datetime) -> datetime:
         return validate_aware_utc(value)
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class ReservaTurnoSucursalIn(BaseModel):
     cliente_id: conint(ge=1)
@@ -192,13 +204,13 @@ class ReservaTurnoSucursalIn(BaseModel):
     def validar_fecha_hora_utc(cls, value: datetime) -> datetime:
         return validate_aware_utc(value)
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class TurnoEstadoUpdateIn(BaseModel):
     estado_turno: EstadoTurno
     observacion: constr(min_length=1, max_length=255) | None # por ejemplo: el motivo de cancelación
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class TurnoHistorialSucursal(BaseModel):
     cliente_dni: constr(regex=r"^[0-9]{6,8}$")
@@ -221,7 +233,7 @@ class TurnoHistorialSucursal(BaseModel):
     def validar_fecha_hora_utc(cls, value: datetime) -> datetime:
         return validate_aware_utc(value)
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class HistorialSucursalOut(BaseModel):
     historial: list[TurnoHistorialSucursal]
@@ -233,7 +245,7 @@ class HistorialSucursalOut(BaseModel):
     def validar_fecha_hora_utc(cls, value: datetime | None) -> datetime | None:
         return validate_aware_utc(value) if value else None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class ServicioSucursalOut(BaseModel):
     id: conint(ge=1)
@@ -249,7 +261,7 @@ class ServicioSucursalOut(BaseModel):
     servicios: conlist(ServicioOut, min_items=1)
     excepciones_fechas: list[ExcepcionFechaServicioOut]
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class ServicioBaseCreate(BaseModel):
     nombre: constr(min_length=1, max_length=100)
@@ -287,7 +299,7 @@ class ServicioBaseCreate(BaseModel):
 
         return self
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class ServicioBaseUpdateIn(BaseModel):
     '''
@@ -324,12 +336,12 @@ class ServicioBaseUpdateIn(BaseModel):
 
         return values
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class ServiciosBaseDeleteIn(BaseModel):
     servicios_base: conlist(conint(ge=1), min_items=1) # IDs de servicios base a eliminar
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class ServicioCreate(BaseModel):
     duracion: conint(gt=0, multiple_of=5)
@@ -361,7 +373,7 @@ class ServicioCreate(BaseModel):
 
         return self
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class ServicioUpdateIn(BaseModel):
     '''
@@ -373,7 +385,7 @@ class ServicioUpdateIn(BaseModel):
     una lista vacía, entonces se interpreta como que quiere borrar todas las disponibilidades
     para con ese servicio y se procede a borrarlas a todas (que el programa identifique si envió disponibilidades
     o lo envió como lista vacía se hace en la función crud_sucursal.update_servicio_version en la parte que dice
-    update_data = servicio_update.dict(exclude_unset=True)).
+    update_data = servicio_update.model_dump(exclude_unset=True)).
     Si hay alguna modificación en las disponibilidades, deberá enviarse todas las disponibilidades, no solo las que
     se modificaron.
 
@@ -405,7 +417,7 @@ class ServicioUpdateIn(BaseModel):
 
         return values
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class ExcepcionFechaServicioCreate(BaseModel):
     fecha_inicio: date
@@ -422,7 +434,7 @@ class ExcepcionFechaServicioCreate(BaseModel):
 
         return self
     
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class ExcepcionFechaServicioUpdateIn(BaseModel):
     fecha_inicio: date | None = None
@@ -462,23 +474,23 @@ class ExcepcionFechaServicioUpdateIn(BaseModel):
 
         return self
     
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class MiembroSucursalOut(BaseModel):
     miembro: MiembroOut
     rol: RolSucursal
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class MiembroSucursalAddIn(BaseModel):
     rol: RolSucursal
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class BlockClienteIn(BaseModel):
     motivo: constr(min_length=1, max_length=255) | None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 class BlockClienteOut(BaseModel):
     cliente: ClienteOut
@@ -494,4 +506,4 @@ class BlockClienteOut(BaseModel):
     def validar_fecha_hora_utc(cls, value: datetime) -> datetime:
         return validate_aware_utc(value)
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)

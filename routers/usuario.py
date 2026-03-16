@@ -38,7 +38,7 @@ def create_usuario(
 
         token = autenticacion.create_email_token(
             data={"sub": usuario.id},
-            expires_delta=timedelta(hours=config.VERIFY_EMAIL_TOKEN_EXPIRE_HOURS)
+            expires_delta=timedelta(hours=config.VERIFY_EMAIL_TOKEN_EXPIRE_HOURS),
         )
 
         # DE FONDO: Para que la respuesta sea instantánea
