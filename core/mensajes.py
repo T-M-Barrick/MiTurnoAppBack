@@ -22,9 +22,9 @@ configuration.api_key['api-key'] = SERVER_API_KEY_BREVO # clave de Brevo
 # Crear cliente
 api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
 
-SENDER_NAME = "Mi Turno"
+SENDER_NAME = "MiTurno"
 
-# ------------------ MAIL DE INVITACIÓN ------------------ #
+# ------------------ MAIL DE VERIFICACIÓN DE EMAIL ------------------ #
 def send_verification_email(to_email: str, token: str):
     verify_link = FRONTEND_URL + FRONT_VERIFICACTION_EMAIL_PATH + token
 
@@ -43,24 +43,10 @@ def send_verification_email(to_email: str, token: str):
         logger.error("Error enviando correo: %s", e)
         raise exceptions.EmailSendFailedError()
 
+# ------------------ MAIL DE INVITACIÓN ------------------ #
 def send_invite_email(to_email: str, token: str, empresa_nombre: str, rol: str):
     invite_link = FRONTEND_URL + FRONT_INVITE_EMAIL_PATH + token
-    '''
-    html_content = f"""
-    <p>Fuiste invitado a unirte a <strong>{empresa_nombre}</strong> como <strong>{rol}</strong>.</p>
-    <p>Hacé click aquí para aceptar: <a href="{invite_link}">{invite_link}</a></p>
-    """
 
-    text_content = f"Fuiste invitado a {empresa_nombre} como {rol}. Link: {invite_link}"
-
-    send_email = sib_api_v3_sdk.SendSmtpEmail(
-        to=[{"email": to_email}],
-        sender={"name": SENDER_NAME, "email": "admin@miturno.site"},  # tu dominio autenticado
-        subject=f"Invitación a {empresa_nombre}",
-        html_content=html_content,
-        text_content=text_content
-    )
-    '''
     send_email = sib_api_v3_sdk.SendSmtpEmail(
         to=[{"email": to_email}],
         sender={"name": SENDER_NAME, "email": EMAIL},
@@ -81,18 +67,7 @@ def send_invite_email(to_email: str, token: str, empresa_nombre: str, rol: str):
 # ------------------ MAIL PARA RESETEO DE CONTRASEÑA ------------------ #
 def send_reset_email(to_email: str, token: str):
     reset_link = FRONTEND_URL + FRONT_RESET_EMAIL_PATH + token
-    '''
-    html_body = f"<p>Para resetear tu contraseña hacé click aquí: <a href='{reset_link}'>{reset_link}</a></p>"
-    text_body = f"Para resetear tu contraseña hacé click aquí: {reset_link}"
 
-    send_email = sib_api_v3_sdk.SendSmtpEmail(
-        to=[{"email": to_email}],
-        sender={"name": SENDER_NAME, "email": EMAIL},
-        subject="Recuperar contraseña",
-        html_content=html_body,
-        text_content=text_body
-    )
-    '''
     send_email = sib_api_v3_sdk.SendSmtpEmail(
         to=[{"email": to_email}],
         sender={"name": SENDER_NAME, "email": EMAIL},
@@ -114,7 +89,8 @@ def send_turno_cancelado_email(
     us_emp_nombre: str,
     fecha_hora_utc: datetime,
     servicio: str,
-    motivo: str | None):
+    motivo: str | None,
+):
 
     fecha_hora_utc = timezone.ensure_utc(fecha_hora_utc) # garantía defensiva
 
@@ -124,56 +100,6 @@ def send_turno_cancelado_email(
     hora = fecha_hora_local.strftime("%H:%M")
     
     motivo = motivo.strip() if motivo else None
-
-    '''
-    subject = f"Turno cancelado por {us_emp_nombre}"
-    
-    partes = [
-        f"<p><strong>{us_emp_nombre}</strong> ha cancelado el turno programado
-        para el día <strong>{fecha}</strong> a las <strong>{hora}</strong> hs.</p>"
-    ]
-
-    if motivo:
-        partes.append(f"<p><strong>Motivo:</strong> {motivo}</p>")
-
-    partes.append(f"<p><strong>Servicio:</strong> {servicio}</p>")
-
-    mensaje_html = "\n".join(partes)
-
-    html_body = f"""
-    <p>Hola,</p>
-    {mensaje_html}
-    <p>Muchas gracias por su comprensión.</p>
-    <p>— Equipo MiTurno</p>
-    """
-
-    partes = [
-        f"{us_emp_nombre} ha cancelado el turno programado
-        para el día {fecha} a las {hora} hs."
-    ]
-
-    if motivo:
-        partes.append(f"Motivo: {motivo}")
-
-    partes.append(f"Servicio: {servicio}")
-
-    mensaje_txt = "\n".join(partes)
-
-    text_body = f"""
-    Hola,
-    {mensaje_txt}
-    Muchas gracias por su comprensión.
-    — Equipo MiTurno
-    """
-
-    send_email = sib_api_v3_sdk.SendSmtpEmail(
-        to=[{"email": to_email}],
-        sender={"name": SENDER_NAME, "email": EMAIL},
-        subject=subject,
-        html_content=html_body,
-        text_content=text_body
-    )
-    '''
 
     send_email = sib_api_v3_sdk.SendSmtpEmail(
         to=[{"email": to_email}],
