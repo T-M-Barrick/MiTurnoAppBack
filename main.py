@@ -2,18 +2,19 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import usuario, auth, empresa, sucursal, invitaciones, geo
-from core.config import PORT, FRONTEND_URL
 from core.database import engine, Base # engine es la conexión a la base de datos, y Base es la clase base de los modelos.
-from services.scheduler import start_scheduler
-from core import models, config
+from core.config import PORT, FRONTEND_URL
+from seed import ejecutar_seeds
+from routers import usuario, auth, empresa, sucursal, invitaciones, geo
 from handlers.exceptions import register_exception_handlers
+from services.scheduler import start_scheduler
 
 # Creamos la aplicación FastAPI y le da un título que se ve en la documentación automática (/docs).
 app = FastAPI(title="Reservas API")
 
 # Crear tablas en la base de datos
 Base.metadata.create_all(bind=engine) # No sobrescribe ninguna base ni ninguna tabla existente. Tampoco borra registros.
+ejecutar_seeds()
 
 # 🔥 CONFIGURACIÓN CORS
 app.add_middleware(
@@ -26,6 +27,7 @@ app.add_middleware(
     allow_methods=["*"], # permite todos los métodos (GET, POST, etc.)
     allow_headers=["*"], # permite todos los headers
 )
+
 app.include_router(usuario.router)
 app.include_router(auth.router)
 app.include_router(empresa.router)

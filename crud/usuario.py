@@ -242,7 +242,7 @@ def get_turno(db: Session, turno_id: int):
         joinedload(models.Turno.sucursal).joinedload(models.Sucursal.direccion),
         joinedload(models.Turno.estado_turno_usuario),
     ).filter(
-        models.Turno.id == turno_id.
+        models.Turno.id == turno_id,
         models.Turno.eliminado_por_usuario == False,
     ).first()
     

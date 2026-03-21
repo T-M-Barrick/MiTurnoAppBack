@@ -133,7 +133,7 @@ def aceptar_invitacion(db: Session, token: str):
         ).order_by(models.Miembro_Empresa.id.asc()).with_for_update(of=models.Miembro_Empresa).all()
         
         # Verificar si ya es miembro de la empresa (rol global)
-        es_miembro = next((m_e.usuario_id == usuario_id for m_e in miembros_de_la_empresa), None)
+        es_miembro = next((m_e for m_e in miembros_de_la_empresa if m_e.usuario_id == usuario_id), None)
         if es_miembro:
             return empresa.nombre, es_miembro.rol.nombre
         
@@ -150,7 +150,7 @@ def aceptar_invitacion(db: Session, token: str):
             ).order_by(models.Miembro_Sucursal.id.asc()).with_for_update(of=models.Miembro_Sucursal).all()
 
             # Verificar si ya es miembro de la sucursal
-            es_miembro = next((m_s.usuario_id == usuario_id for m_s in miembros_de_la_sucursal), None)
+            es_miembro = next((m_s for m_s in miembros_de_la_sucursal if m_s.usuario_id == usuario_id), None)
             if es_miembro:
                 return auxiliares.nombre_empresa(sucursal.empresa.nombre, sucursal.nombre), es_miembro.rol.nombre
 

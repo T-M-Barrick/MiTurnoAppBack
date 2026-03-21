@@ -121,7 +121,7 @@ def get_roles(
         .all()
     )
 
-    empresas_out = mappers_usuario.mis_empresas_out(roles_en_empresas, roles_en_sucursales)
+    roles_empresas_out = mappers_usuario.mis_empresas_out(roles_en_empresas, roles_en_sucursales)
 
     return roles_empresas_out
 

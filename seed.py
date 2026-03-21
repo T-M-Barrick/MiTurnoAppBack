@@ -43,12 +43,13 @@ def run_seeds(db: Session):
     seed_roles(db)
     db.commit()
 
-db = SessionLocal()
+def ejecutar_seeds():
+    db = SessionLocal()
 
-version = db.execute(text("SHOW server_version")).scalar()
-print(f"PostgreSQL versión: {version}")
+    version = db.execute(text("SHOW server_version")).scalar()
+    print(f"PostgreSQL versión: {version}")
 
-run_seeds(db)
-db.close()
+    run_seeds(db)
+    db.close()
 
-print("✅ Seeds ejecutados correctamente")
+    print("✅ Seeds ejecutados correctamente")

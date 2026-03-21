@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from core import models, autenticacion, auxiliares, constantes, mensajes
 from core.database import get_db
 from crud import common as crud_common
+from crud import invitaciones as crud_invitaciones
 from services import auth as services_auth
 from schemas import invitaciones as schemas_invitaciones
 from mappers import invitaciones as mappers_invitaciones

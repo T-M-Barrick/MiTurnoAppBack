@@ -22,7 +22,7 @@ def sucursal_out(sucursal):
         id=sucursal.id,
         cuit=sucursal.empresa.cuit,
         nombre=auxiliares.nombre_empresa(sucursal.empresa.nombre, sucursal.nombre),
-        email=sucursal.email if sucursal.email else empresa.email,
+        email=sucursal.email if sucursal.email else sucursal.empresa.email,
         rubro=sucursal.empresa.rubro,
         rubro2=sucursal.empresa.rubro2,
         calificacion=sucursal.calificacion,
