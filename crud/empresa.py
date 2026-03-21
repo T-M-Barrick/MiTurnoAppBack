@@ -19,7 +19,7 @@ def create(db: Session, usuario_id: int, empresa: schemas_empresa.EmpresaCreate)
     if empresa_existe and empresa_existe.email_verificado:
         raise exceptions.EmpresaAlreadyExistsError()
     if empresa_existe and not empresa_existe.email_verificado:
-        raise empresa_existe
+        return empresa_existe
     
     try:
         # Crear el objeto de empresa

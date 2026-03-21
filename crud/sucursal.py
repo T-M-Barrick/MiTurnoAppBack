@@ -772,7 +772,7 @@ def update_estado_turno(db: Session, sucursal_id: int, user: models.Usuario, tur
         .first()
     )
     if not servicio:
-        raise SucursalServiceNotFoundError()
+        raise exceptions.SucursalServiceNotFoundError()
 
     if (nuevo_estado == 'CANCELADO_POR_EMPRESA'
         and turno.profesional_id is not None # si tiene profesional
@@ -1199,12 +1199,12 @@ def create_servicio_version(db: Session, sucursal_id: int,
         ).order_by(models.Servicio.id.asc()).with_for_update().all()
 
         if len(servicios_existentes) == 2:
-            raise SucursalServiceRangosFechasError()
+            raise exceptions.SucursalServiceRangosFechasError()
 
         servicio_actual = servicios_existentes[0]
 
         if servicio_nuevo.vigente_desde <= servicio_actual.vigente_desde:
-            raise SucursalServicePosteriorFechaInicioVigenciaError()
+            raise exceptions.SucursalServicePosteriorFechaInicioVigenciaError()
 
         disps_existentes = db.query(models.Disponibilidad).join(models.Servicio).filter(
             models.Servicio.servicio_base_id == servicio_base_id,
@@ -1353,7 +1353,7 @@ def update_servicio_version(db: Session, sucursal_id: int, usuario_id: int,
         ).first()
 
         if servicio_superpuesto:
-            raise SucursalServiceSuperpuestoError()
+            raise exceptions.SucursalServiceSuperpuestoError()
         
         # Este chequeo es por si el nuevo intervalo de vigencia deja de contemplar algunas fechas y esto se
         # lograría solamente, en este caso, reduciendo la fecha vigente_hasta (recordar que en caso de que la
@@ -1499,7 +1499,7 @@ def delete_servicio_version(db: Session, sucursal_id: int, usuario_id: int, serv
             raise exceptions.SucursalServiceNotFoundError()
 
         if len(servicios) == 1:
-            raise SucursalServiceRangosFechasError()
+            raise exceptions.SucursalServiceRangosFechasError()
         
         disponibilidades = (
             db.query(models.Disponibilidad)
@@ -1867,7 +1867,7 @@ def add_miembro(db: Session, sucursal_id: int, usuario_solicitante_id: int, targ
         ).order_by(models.Miembro_Sucursal.id.asc()).with_for_update(of=models.Miembro_Sucursal).first()
 
         if not es_miembro_de_alguna_sucursal:
-            raise SucursalMiembroAddError()
+            raise exceptions.SucursalMiembroAddError()
         
         # Traer el objeto de clase Miembro_Sucursal para ver si ya existe
         miembro_sucursal_target = get_miembro_sucursal(db, sucursal_id, target_id, lanzar_error=False)

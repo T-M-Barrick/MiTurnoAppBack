@@ -71,7 +71,7 @@ def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, ca
     # Construir la dirección completa
     direccion_completa = f"{calle} {altura}, {localidad}, {municipio}, {provincia}, Argentina"
 
-    params = {"q": direccion, "format": "json", "limit": 1}
+    params = {"q": direccion_completa, "format": "json", "limit": 1}
 
     try:
         r = requests.get(url, params=params, timeout=5, headers={"User-Agent": "MiApp/1.0"})
