@@ -531,13 +531,6 @@ class ResetOTPError(ResetPasswordError):
     code = "RESET_OTP"
     default_message = "Código inválido o expirado"
 
-# ------------------ Domain Verify Errores ------------------ #
-
-class VerifyEmailInvalidExpiredTokenError(AuthError):
-    status_code = 400
-    code = "VERIFY_EMAIL_INVALID_EXPIRED_TOKEN"
-    default_message = "El enlace de verificación no es válido o ha expirado"
-
 # ------------------ Domain Invitation Errores ------------------ #
 
 class InvitationError(DomainError):
@@ -606,6 +599,11 @@ class AuthError(AppSystemError):
     status_code = 401
     code = "AUTH_ERROR"
     default_message = "Credenciales inválidas"
+
+class AuthVerifyEmailInvalidExpiredTokenError(AuthError):
+    status_code = 400
+    code = "VERIFY_EMAIL_INVALID_EXPIRED_TOKEN"
+    default_message = "El enlace de verificación no es válido o ha expirado"
 
 class AuthTokenMissingError(AuthError):
     pass

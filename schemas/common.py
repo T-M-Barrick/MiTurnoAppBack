@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, date, time
 from enum import Enum
 from typing import Self, Any
 
-from pydantic import BaseModel, ConfigDict, Field, conint, confloat, constr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, conint, condecimal, confloat, constr, field_validator, model_validator
 
 from core.timezone import validate_aware_utc
 
@@ -23,14 +23,14 @@ class RolSucursal(str, Enum):
 
 class Telefono(BaseModel):
     # El texto debe contener solo números del 0 al 9 luego de que el primer caracter sea el + y el siguiente sea un dígito entre 1 y 9
-    numero: constr(regex=r"^\+[1-9][0-9]{5,28}$")
+    numero: constr(pattern=r"^\+[1-9][0-9]{5,28}$")
 
     model_config = ConfigDict(from_attributes=True)
 
 class TelefonoConID(BaseModel):
     id: conint(ge=1)
     # El texto debe contener solo números del 0 al 9 luego de que el primer caracter sea el + y el siguiente sea un dígito entre 1 y 9
-    numero: constr(regex=r"^\+[1-9][0-9]{5,28}$")
+    numero: constr(pattern=r"^\+[1-9][0-9]{5,28}$")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -169,7 +169,7 @@ class ExcepcionFechaServicioOut(BaseModel):
 
 class MiembroOut(BaseModel):
     id: conint(ge=1)
-    dni: constr(regex=r"^[0-9]{6,8}$")
+    dni: constr(pattern=r"^[0-9]{6,8}$")
     apellido: constr(min_length=1, max_length=50)
     nombre: constr(min_length=1, max_length=50)
     email: EmailStr = Field(..., max_length=255)

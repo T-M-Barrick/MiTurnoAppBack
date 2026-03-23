@@ -10,6 +10,7 @@ from crud import empresa as crud_empresa
 from services import auth as services_auth
 from schemas import common as schemas_common
 from schemas import empresa as schemas_empresa
+from mappers import common as mappers_common
 from mappers import empresa as mappers_empresa
 
 router = APIRouter(prefix="/empresas", tags=["Empresas"])
@@ -233,7 +234,7 @@ def get_notificaciones_nuevas_empresa(
 def update_notificacion_leida_empresa(
     empresa_id: int = Path(..., ge=1),
     notificacion_id: int = Path(..., ge=1),
-    current_user: models.Usuario = Depends(...),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
 ):
     crud_empresa.update_notificacion_leida(db, empresa_id, current_user.id, notificacion_id)

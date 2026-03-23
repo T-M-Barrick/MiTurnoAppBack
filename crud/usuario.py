@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from crud.common import (
     get_empresa,
     get_sucursal,
-    disponibilidad_cubre_turno
+    disponibilidad_cubre_turno,
     nuevo_estado_check,
     contar_turnos_superpuestos_servicio,
     tiene_turno_superpuesto,
@@ -57,6 +57,7 @@ def create_usuario(db: Session, user: schemas_usuario.UserCreate):
         # Agregar direcciones
         for d in user.direcciones:
             db_dir = models.Direccion(
+                usuario_id=db_user.id,
                 calle=d.calle,
                 altura=d.altura,
                 localidad=d.localidad,
@@ -67,13 +68,7 @@ def create_usuario(db: Session, user: schemas_usuario.UserCreate):
                 lng=d.lng,
                 aclaracion=d.aclaracion,
             )
-
             db.add(db_dir)
-            db.flush()
-
-            # Registrar relación en tabla intermedia
-            dir_user = models.Dir_Usuario(usuario_id=db_user.id, direccion_id=db_dir.id)
-            db.add(dir_user)
 
         db.commit()
     except Exception:
@@ -156,68 +151,51 @@ def update(db: Session, user: models.Usuario, user_update: schemas_usuario.UserU
                     db.add(new_tel)
 
             # Eliminar teléfonos que ya no están en la lista
-            for old_id in list(current_phones.keys()):
+            for old_id in current_phones:
                 if old_id not in new_ids:
-                    tel = db.query(models.Telefono).filter(models.Telefono.id == old_id).first()
-                    if tel:
-                        db.delete(tel)
+                    db.delete(current_phones[old_id])
 
         # ----------------------------
         # 3️⃣ Actualizar DIRECCIONES
         # ----------------------------
         if user_update.direcciones is not None:
-            current_dirs = {
-                du.direccion_id: du.direccion
-                for du in db.query(models.Dir_Usuario)
-                            .options(joinedload(models.Dir_Usuario.direccion))
-                            .filter(models.Dir_Usuario.usuario_id == user.id)
-                            .all()
-            }
+            current_dirs = {d.id: d for d in user.direcciones}
             new_dir_ids = set()
 
-            for d in user_update.direcciones:
-                if d.id and d.id in current_dirs:
-                    db_dir = current_dirs[d.id]
-                    db_dir.calle = d.calle
-                    db_dir.altura = d.altura
-                    db_dir.localidad = d.localidad
-                    db_dir.departamento = d.departamento
-                    db_dir.provincia = d.provincia
-                    db_dir.pais = d.pais
-                    db_dir.lat = d.lat
-                    db_dir.lng = d.lng
-                    db_dir.aclaracion = d.aclaracion
-                    new_dir_ids.add(d.id)
+            for direc in user_update.direcciones: # direc es un objeto de la clase schema DireccionUpdateIn
+
+                if direc.id and direc.id in current_dirs:
+                    db_dir = current_dirs[direc.id]
+                    db_dir.calle = direc.calle
+                    db_dir.altura = direc.altura
+                    db_dir.localidad = direc.localidad
+                    db_dir.departamento = direc.departamento
+                    db_dir.provincia = direc.provincia
+                    db_dir.pais = direc.pais
+                    db_dir.lat = direc.lat
+                    db_dir.lng = direc.lng
+                    db_dir.aclaracion = direc.aclaracion
+                    new_dir_ids.add(direc.id)
                 else:
                     # Crear nueva dirección
-                    db_dir = models.Direccion(
-                        calle=d.calle,
-                        altura=d.altura,
-                        localidad=d.localidad,
-                        departamento=d.departamento,
-                        provincia=d.provincia,
-                        pais=d.pais,
-                        lat=d.lat,
-                        lng=d.lng,
-                        aclaracion=d.aclaracion
+                    new_dir = models.Direccion(
+                        usuario_id=user.id,
+                        calle=direc.calle,
+                        altura=direc.altura,
+                        localidad=direc.localidad,
+                        departamento=direc.departamento,
+                        provincia=direc.provincia,
+                        pais=direc.pais,
+                        lat=direc.lat,
+                        lng=direc.lng,
+                        aclaracion=direc.aclaracion,
                     )
-                    db.add(db_dir)
-                    db.flush()
-                    db.add(models.Dir_Usuario(usuario_id=user.id, direccion_id=db_dir.id))
+                    db.add(new_dir)
 
-            # Eliminar direcciones eliminadas
-            for old_id in list(current_dirs.keys()):
+            # Eliminar direcciones que ya no están en la lista
+            for old_id in current_dirs:
                 if old_id not in new_dir_ids:
-                    dir_usuario = db.query(models.Dir_Usuario).filter_by(usuario_id=user.id, direccion_id=old_id).first()
-                    if dir_usuario:
-                        db.delete(dir_usuario)
-                        db.flush()
-                    # Eliminar dirección si nadie más la usa
-                    used = db.query(models.Dir_Usuario).filter(models.Dir_Usuario.direccion_id == old_id).count()
-                    if used == 0:
-                        direccion = db.query(models.Direccion).filter(models.Direccion.id == old_id).first()
-                        if direccion:
-                            db.delete(direccion)
+                    db.delete(current_dirs[old_id])
 
         db.commit()
 
@@ -610,7 +588,7 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
 
     return turno
 
-def update_estado_turno(db: Session, usuario: models.Usuario, turno_id: int, turno_update: schemas_usuario.TurnoUpdateIn):
+def update_estado_turno(db: Session, usuario: models.Usuario, turno_id: int, turno_update: schemas_usuario.TurnoEstadoUpdateIn):
 
     turno = db.query(models.Turno).filter_by(
         id=turno_id,

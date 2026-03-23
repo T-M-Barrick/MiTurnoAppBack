@@ -96,7 +96,7 @@ def turno_historial_sucursal(h):
         aclaracion_de_servicio=h.aclaracion_de_servicio,
         profesional_dni=h.profesional.dni if tiene_profesional else None,
         profesional_apellido=h.profesional.apellido if tiene_profesional else None,
-        profesional_nombre=h.profesional.nombre if if tiene_profesional else None,
+        profesional_nombre=h.profesional.nombre if tiene_profesional else None,
         created_at=timezone.ensure_utc(h.created_at),
         estado_turno=h.estado_turno_sucursal.estado if h.estado_turno_sucursal else None,
     )

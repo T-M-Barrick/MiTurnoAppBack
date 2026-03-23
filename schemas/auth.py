@@ -88,7 +88,7 @@ class ForgotPasswordMobile(BaseModel):
 
 class ResetPasswordMobile(BaseModel):
     telefono: Telefono
-    otp: constr(regex=r"^\d{6}$") # numérico de 6 dígitos
+    otp: constr(pattern=r"^\d{6}$") # numérico de 6 dígitos
     new_password: SecretStr = Field(..., min_length=8, max_length=128)
 
     @field_validator("new_password", mode="after")

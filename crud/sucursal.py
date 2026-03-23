@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from collections import defaultdict
 
 from fastapi import UploadFile
@@ -517,7 +517,7 @@ def get_turno(db: Session, turno_id: int):
     
     return turno
 
-def reservar_turno(db: Session, sucursal_id: int, usuario_miembro_id: int, reserva: schemas_usuario.ReservaTurnoSucursalIn):
+def reservar_turno(db: Session, sucursal_id: int, usuario_miembro_id: int, reserva: schemas_sucursal.ReservaTurnoSucursalIn):
 
     sucursal = get_sucursal(db, sucursal_id)
 
@@ -728,7 +728,7 @@ def reservar_turno(db: Session, sucursal_id: int, usuario_miembro_id: int, reser
 
     return turno
 
-def update_estado_turno(db: Session, sucursal_id: int, user: models.Usuario, turno_id: int, turno_update: schemas_sucursal.TurnoUpdateIn):
+def update_estado_turno(db: Session, sucursal_id: int, user: models.Usuario, turno_id: int, turno_update: schemas_sucursal.TurnoEstadoUpdateIn):
 
     sucursal = get_sucursal(db, sucursal_id)
     current_user_rol = verificar_rol_en_empresa_o_sucursal(db, user.id, sucursal.empresa.id, sucursal_id)
@@ -2267,7 +2267,7 @@ def validar_turnos_vs_nueva_vigencia(
     return turnos_dentro_del_nuevo_rango # los que estaban en el viejo rango y ahora quedarán en el nuevo rango
 
 def validar_turnos_existentes_vs_nueva_config_disps(
-    turnos = list[models.Turno],
+    turnos: list[models.Turno],
     disponibilidades_finales: list,
 ):
     """

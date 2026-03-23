@@ -18,7 +18,7 @@ from schemas.common import (
 from core.timezone import validate_aware_utc
 
 class EmpresaCreate(BaseModel):
-    cuit: constr(regex=r"^[0-9]{11}$")
+    cuit: constr(pattern=r"^[0-9]{11}$")
     nombre: constr(min_length=1, max_length=50)
     email: EmailStr = Field(..., max_length=255)
     rubro: constr(min_length=1, max_length=100) | None
@@ -58,7 +58,7 @@ class EmpresaHomeOut(BaseModel):
 
 class EmpresaPerfilOut(BaseModel):
     id: conint(ge=1)
-    cuit: constr(regex=r"^[0-9]{11}$")
+    cuit: constr(pattern=r"^[0-9]{11}$")
     nombre: constr(min_length=1, max_length=50)
     email: EmailStr = Field(..., max_length=255)
     rubro: constr(min_length=1, max_length=100) | None
@@ -70,7 +70,7 @@ class EmpresaPerfilOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class EmpresaUpdateIn(BaseModel):
-    cuit: constr(regex=r"^[0-9]{11}$") | None = None
+    cuit: constr(pattern=r"^[0-9]{11}$") | None = None
     nombre: constr(min_length=1, max_length=50) | None = None
     rubro: constr(min_length=1, max_length=100) | None = None
     rubro2: constr(min_length=1, max_length=100) | None = None
@@ -120,7 +120,7 @@ class SucursalDeMiembro(BaseModel):
 
 class MiembroSucursalOut(BaseModel):
     miembro: MiembroOut
-    sucursales: conlist(SucursalDeMiembro, min_items=1)
+    sucursales: conlist(SucursalDeMiembro, min_length=1)
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -7,6 +7,7 @@ pydantic[email]==2.11.7 # validación de datos con soporte de email
 passlib[bcrypt]==1.7.4 # passlib + las librerías extra para que bcrypt funcione
 bcrypt==4.0.1 # librería de hashing de contraseñas
 python-dotenv==1.1.1 # carga variables de entorno desde .env
+python-multipart==0.0.22 # sirve para que FastAPI pueda usar el UploadFile para manipular los logos de las empresas
 APScheduler==3.11.0 # es una librería que permite programar tareas que se ejecuten en momentos específicos o de forma periódica
 python-jose[cryptography]==3.5.0 # JWT y criptografía
 requests==2.32.5 # requests HTTP

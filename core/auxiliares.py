@@ -5,6 +5,7 @@ import io
 
 import requests
 from PIL import Image
+from sqlalchemy.orm import Session
 
 from core.constantes import DIAS_NOMBRES, MAX_LOGO_SIZE
 from core import exceptions, timezone

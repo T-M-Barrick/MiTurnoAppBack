@@ -10,6 +10,7 @@ from crud import usuario as crud_usuario
 from services import auth as services_auth
 from schemas import common as schemas_common
 from schemas import usuario as schemas_usuario
+from mappers import common as mappers_common
 from mappers import usuario as mappers_usuario
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
@@ -311,7 +312,7 @@ def get_notificaciones_nuevas_usuario(
 @router.patch("/notificaciones/{notificacion_id}/leida", status_code=204)
 def update_notificacion_leida_usuario(
     notificacion_id: int = Path(..., ge=1),
-    current_user: models.Usuario = Depends(...),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
 ):
     crud_usuario.update_notificacion_leida(db, current_user.id, notificacion_id)

@@ -68,7 +68,8 @@ def create(db: Session, usuario_id: int, empresa: schemas_empresa.EmpresaCreate)
             pais=empresa.direccion.pais,
             lat=empresa.direccion.lat,
             lng=empresa.direccion.lng,
-            aclaracion=empresa.direccion.aclaracion)
+            aclaracion=empresa.direccion.aclaracion,
+        )
 
         db.add(db_dir)
 

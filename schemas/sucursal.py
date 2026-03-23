@@ -41,7 +41,7 @@ class SucursalHomeOut(BaseModel): # Esto es solo para los gerentes de sucursal y
 
 class SucursalPerfilOut(BaseModel): # Esto es solo para los gerentes de sucursal y empleados
     id: conint(ge=1)
-    cuit: constr(regex=r"^[0-9]{11}$")
+    cuit: constr(pattern=r"^[0-9]{11}$")
     nombre_empresa: constr(min_length=1, max_length=50)
     nombre_sucursal: constr(min_length=1, max_length=50) | None
     email_empresa: EmailStr = Field(..., max_length=255)
@@ -89,12 +89,12 @@ class SucursalUpdateIn(BaseModel):
 
 class ClienteOut(BaseModel):
     id: conint(ge=1)
-    dni: constr(regex=r"^[0-9]{6,8}$")
+    dni: constr(pattern=r"^[0-9]{6,8}$")
     apellido: constr(min_length=1, max_length=50)
     nombre: constr(min_length=1, max_length=50)
     email: EmailStr = Field(..., max_length=255)
-    telefono: constr(regex=r"^\+[1-9][0-9]{5,28}$") | None
-    telefono2: constr(regex=r"^\+[1-9][0-9]{5,28}$") | None
+    telefono: constr(pattern=r"^\+[1-9][0-9]{5,28}$") | None
+    telefono2: constr(pattern=r"^\+[1-9][0-9]{5,28}$") | None
     observacion: constr(min_length=1, max_length=500) | None
     fecha_hora_alta: datetime # debe salir como aware UTC
     activo: bool
@@ -114,12 +114,12 @@ class ClientesSucursalOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class ClienteCreate(BaseModel):
-    dni: constr(regex=r"^[0-9]{6,8}$")
+    dni: constr(pattern=r"^[0-9]{6,8}$")
     apellido: constr(min_length=1, max_length=50)
     nombre: constr(min_length=1, max_length=50)
     email: EmailStr = Field(..., max_length=255)
-    telefono: constr(regex=r"^\+[1-9][0-9]{5,28}$") | None
-    telefono2: constr(regex=r"^\+[1-9][0-9]{5,28}$") | None
+    telefono: constr(pattern=r"^\+[1-9][0-9]{5,28}$") | None
+    telefono2: constr(pattern=r"^\+[1-9][0-9]{5,28}$") | None
     observacion: constr(min_length=1, max_length=500) | None
 
     @field_validator("email", mode="after")
@@ -131,12 +131,12 @@ class ClienteCreate(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class ClienteUpdateIn(BaseModel):
-    dni: constr(regex=r"^[0-9]{6,8}$") | None = None
+    dni: constr(pattern=r"^[0-9]{6,8}$") | None = None
     apellido: constr(min_length=1, max_length=50) | None = None
     nombre: constr(min_length=1, max_length=50) | None = None
-    email: EmailStr = Field(..., max_length=255) | None = None
-    telefono: constr(regex=r"^\+[1-9][0-9]{5,28}$") | None = None
-    telefono2: constr(regex=r"^\+[1-9][0-9]{5,28}$") | None = None
+    email: EmailStr | None = Field(default=None, max_length=255)
+    telefono: constr(pattern=r"^\+[1-9][0-9]{5,28}$") | None = None
+    telefono2: constr(pattern=r"^\+[1-9][0-9]{5,28}$") | None = None
     observacion: constr(min_length=1, max_length=500) | None = None
 
     @field_validator("email", mode="after")
@@ -171,7 +171,7 @@ class ClienteUpdateIn(BaseModel):
 
 class TurnoSucursalOut(BaseModel):
     id: conint(ge=1)
-    cliente_dni: constr(regex=r"^[0-9]{6,8}$")
+    cliente_dni: constr(pattern=r"^[0-9]{6,8}$")
     cliente_apellido: constr(min_length=1, max_length=50)
     cliente_nombre: constr(min_length=1, max_length=50)
     cliente_email: EmailStr = Field(..., max_length=255)
@@ -181,7 +181,7 @@ class TurnoSucursalOut(BaseModel):
     duracion: conint(gt=0, multiple_of=5)
     precio: condecimal(ge=0, max_digits=10, decimal_places=2)
     aclaracion_de_servicio: constr(min_length=1, max_length=255) | None
-    profesional_dni: constr(regex=r"^[0-9]{6,8}$") | None
+    profesional_dni: constr(pattern=r"^[0-9]{6,8}$") | None
     profesional_apellido: constr(min_length=1, max_length=50) | None
     profesional_nombre: constr(min_length=1, max_length=50) | None
     created_at: datetime
@@ -213,7 +213,7 @@ class TurnoEstadoUpdateIn(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class TurnoHistorialSucursal(BaseModel):
-    cliente_dni: constr(regex=r"^[0-9]{6,8}$")
+    cliente_dni: constr(pattern=r"^[0-9]{6,8}$")
     cliente_apellido: constr(min_length=1, max_length=50)
     cliente_nombre: constr(min_length=1, max_length=50)
     cliente_email: EmailStr = Field(..., max_length=255)
@@ -222,7 +222,7 @@ class TurnoHistorialSucursal(BaseModel):
     duracion: conint(gt=0, multiple_of=5)
     precio: condecimal(ge=0, max_digits=10, decimal_places=2)
     aclaracion_de_servicio: constr(min_length=1, max_length=255) | None
-    profesional_dni: constr(regex=r"^[0-9]{6,8}$") | None
+    profesional_dni: constr(pattern=r"^[0-9]{6,8}$") | None
     profesional_apellido: constr(min_length=1, max_length=50) | None
     profesional_nombre: constr(min_length=1, max_length=50) | None
     created_at: datetime
@@ -252,13 +252,13 @@ class ServicioSucursalOut(BaseModel):
     nombre: constr(min_length=1, max_length=100)
     aclaracion: constr(min_length=1, max_length=255) | None
     profesional_id: conint(ge=1) | None
-    profesional_dni: constr(regex=r"^[0-9]{6,8}$") | None
+    profesional_dni: constr(pattern=r"^[0-9]{6,8}$") | None
     profesional_apellido: constr(min_length=1, max_length=50) | None
     profesional_nombre: constr(min_length=1, max_length=50) | None
     minutos_min_reserva: conint(ge=0)
     dias_max_reserva: conint(ge=0) | None
     cancelacion_limitada: bool
-    servicios: conlist(ServicioOut, min_items=1)
+    servicios: conlist(ServicioOut, min_length=1)
     excepciones_fechas: list[ExcepcionFechaServicioOut]
 
     model_config = ConfigDict(from_attributes=True)
@@ -269,8 +269,8 @@ class ServicioBaseCreate(BaseModel):
     precio: condecimal(ge=0, max_digits=10, decimal_places=2)
     aclaracion: constr(min_length=1, max_length=255) | None
     profesional_id: conint(ge=1) | None
-    vigente_desde = date
-    vigente_hasta = date | None
+    vigente_desde: date
+    vigente_hasta: date | None
     minutos_min_reserva: conint(ge=0)
     dias_max_reserva: conint(ge=0) | None
     cancelacion_limitada: bool
@@ -339,7 +339,7 @@ class ServicioBaseUpdateIn(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class ServiciosBaseDeleteIn(BaseModel):
-    servicios_base: conlist(conint(ge=1), min_items=1) # IDs de servicios base a eliminar
+    servicios_base: conlist(conint(ge=1), min_length=1) # IDs de servicios base a eliminar
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -392,7 +392,7 @@ class ServicioUpdateIn(BaseModel):
     Todo campo que se envíe como None (y el validator lo permita), se cambia en la base a NULL.
     '''
     precio: condecimal(ge=0, max_digits=10, decimal_places=2) | None = None
-    vigente_hasta = date | None = None
+    vigente_hasta: date | None = None
     disponibilidades: list[DisponibilidadServicio] | None = None # lista de disponibilidades por días
     
     @model_validator(mode="before")
@@ -494,7 +494,7 @@ class BlockClienteIn(BaseModel):
 
 class BlockClienteOut(BaseModel):
     cliente: ClienteOut
-    miembro_dni: constr(regex=r"^[0-9]{6,8}$")
+    miembro_dni: constr(pattern=r"^[0-9]{6,8}$")
     miembro_apellido: constr(min_length=1, max_length=50)
     miembro_nombre: constr(min_length=1, max_length=50)
     miembro_rol: RolEmpresa | RolSucursal | None # rol dentro de la empresa o sucursal

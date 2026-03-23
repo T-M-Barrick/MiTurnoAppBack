@@ -104,8 +104,8 @@ class Usuario(Base):
     )
 
     # Relationships
-    telefonos = relationship("Telefono", back_populates="usuario") # Relación bidireccional gracias a back_populates
-    direcciones = relationship("Direccion", secondary="direccion_usuario") # Relación unidireccional de muchos a muchos con la tabla Direccion
+    telefonos = relationship("Telefono", back_populates="usuario", passive_deletes=True) # Relación bidireccional gracias a back_populates
+    direcciones = relationship("Direccion", back_populates="usuario", passive_deletes=True) # Relación bidireccional de uno a muchos con la tabla Direccion
     favoritos = relationship("Sucursal", secondary="favorito") # Relación unidireccional de muchos a muchos con la tabla Sucursal
 
     turnos = relationship(
@@ -188,8 +188,8 @@ class Sucursal(Base):
     # Relationships
     empresa = relationship("Empresa", back_populates="sucursales")
     clientes = relationship("Cliente", back_populates="sucursal")
-    telefonos = relationship("Telefono", back_populates="sucursal")
-    direccion = relationship("Direccion", back_populates="sucursal", uselist=False)
+    telefonos = relationship("Telefono", back_populates="sucursal", passive_deletes=True)
+    direccion = relationship("Direccion", back_populates="sucursal", uselist=False, passive_deletes=True)
     servicios_base = relationship("ServicioBase", back_populates="sucursal")
     miembros = relationship("Miembro_Sucursal", back_populates="sucursal")
     bloqueos = relationship("BloqueoSucursal", back_populates="sucursal")
@@ -234,7 +234,7 @@ class Cliente(Base):
             text("busqueda_texto gin_trgm_ops"),
             postgresql_using="gin",
         ),
-        UniqueConstraint(sucursal_id, email_normalizado, name="uq_cliente_sucursal_email_normalizado"),
+        UniqueConstraint(sucursal_id, email_normalizado, name="uq_cliente_sucursal_sucursal_id_email_normalizado"),
         CheckConstraint("dni ~ '^[0-9]{6,8}$'", name="ck_cliente_sucursal_dni_6_a_8_digitos"),
         CheckConstraint("length(telefono) >= 7", name="ck_cliente_sucursal_telefono_len"),
         CheckConstraint("length(telefono2) >= 7", name="ck_cliente_sucursal_telefono2_len"),
@@ -258,8 +258,8 @@ class Telefono(Base):
 
     id = Column(Integer, primary_key=True)
     numero = Column(String(30), nullable=False)
-    usuario_id = Column(Integer, ForeignKey("usuario.id"), nullable=True, index=True) # Relación muchos a uno con la tabla usuario (un usuario puede tener varios teléfonos)
-    sucursal_id = Column(Integer, ForeignKey("sucursal.id"), nullable=True, index=True) # Relación muchos a uno con la tabla sucursal (una sucursal puede tener varios teléfonos)
+    usuario_id = Column(Integer, ForeignKey("usuario.id", ondelete="CASCADE"), nullable=True, index=True) # Relación muchos a uno con la tabla usuario (un usuario puede tener varios teléfonos)
+    sucursal_id = Column(Integer, ForeignKey("sucursal.id", ondelete="CASCADE"), nullable=True, index=True) # Relación muchos a uno con la tabla sucursal (una sucursal puede tener varios teléfonos)
 
     __table_args__ = (
         CheckConstraint("length(numero) >= 7", name="ck_telefono_numero_len"),
@@ -278,7 +278,8 @@ class Direccion(Base):
     __tablename__ = "direccion"
 
     id = Column(Integer, primary_key=True)
-    sucursal_id = Column(Integer, ForeignKey("sucursal.id"), nullable=True, index=True) # NULL si pertenece a un usuario
+    usuario_id = Column(Integer, ForeignKey("usuario.id", ondelete="CASCADE"), nullable=True, index=True) # NULL si pertenece a una sucursal
+    sucursal_id = Column(Integer, ForeignKey("sucursal.id", ondelete="CASCADE"), nullable=True, index=True) # NULL si pertenece a un usuario
     calle = Column(String(255), nullable=True)
     altura = Column(String(255), nullable=True)
     localidad = Column(String(255), nullable=True)
@@ -292,19 +293,17 @@ class Direccion(Base):
     __table_args__ = (
         CheckConstraint("lat BETWEEN -90 AND 90", name="ck_lat_range"),
         CheckConstraint("lng BETWEEN -180 AND 180", name="ck_lng_range"),
+        CheckConstraint(
+            "(usuario_id IS NOT NULL AND sucursal_id IS NULL) OR "
+            "(usuario_id IS NULL AND sucursal_id IS NOT NULL)",
+            name="ck_direccion_usuario_xor_sucursal"
+        ),
     )
 
     # Relationships
+    # En Direccion
+    usuario = relationship("Usuario", back_populates="direcciones")
     sucursal = relationship("Sucursal", back_populates="direccion")
-
-class Dir_Usuario(Base):
-    __tablename__ = "direccion_usuario"
-
-    usuario_id = Column(Integer, ForeignKey("usuario.id"), primary_key=True)
-    direccion_id = Column(Integer, ForeignKey("direccion.id"), primary_key=True)
-
-    # Relationships
-    direccion = relationship("Direccion")
 
 class Turno(Base):
     __tablename__ = "turno"
@@ -312,7 +311,7 @@ class Turno(Base):
     id = Column(Integer, primary_key=True)
     usuario_id = Column(Integer, ForeignKey("usuario.id"), nullable=True)
     sucursal_id = Column(Integer, ForeignKey("sucursal.id"), nullable=False)
-    cliente_id = Column(Integer, ForeignKey("cliente.id"), nullable=False)
+    cliente_id = Column(Integer, ForeignKey("cliente_sucursal.id"), nullable=False)
     fecha_hora = Column(DateTime, nullable=False)
     servicio_id = Column(Integer, nullable=False) # apunta a la tabla Servicio
     nombre_de_servicio = Column(String(100), nullable=False)
@@ -468,12 +467,11 @@ class Disponibilidad(Base):
         # Constraint para que los bloques horarios de disponibilidades de un mismo servicio y día no se superpongan ni un minuto
         ExcludeConstraint(
             ("servicio_id", "="),
+            ("dia", "="),
             (
-                func.tsrange(
-                    hora_inicio,
-                    hora_fin,
-                    "[]", # rango cerrado, ni un minuto puede coincidir
-                ),
+                text(
+                    "tsrange('epoch'::date + hora_inicio, 'epoch'::date + hora_fin, '[]')"
+                ), # [] es rango cerrado, ni un minuto puede coincidir
                 "&&", # operador "solapamiento"
             ),
             name="ex_disponibilidad_rangos_horarios_no_superpuestos",
@@ -559,7 +557,7 @@ class BloqueoSucursal(Base):
 
     id = Column(Integer, primary_key=True)
     sucursal_id = Column(Integer, ForeignKey("sucursal.id"), nullable=False)
-    cliente_id = Column(Integer, ForeignKey("cliente.id"), nullable=False)
+    cliente_id = Column(Integer, ForeignKey("cliente_sucursal.id"), nullable=False)
     created_by_id = Column(Integer, ForeignKey("usuario.id"), nullable=False) # quién lo bloqueó
     motivo = Column(String(255), nullable=True)
     created_at = Column(DateTime, nullable=False)

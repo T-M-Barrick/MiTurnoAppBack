@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, date, time
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, conint, confloat, constr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, conint, constr, field_validator, model_validator
 
 from schemas.common import RolEmpresa, RolSucursal
 
@@ -11,7 +11,7 @@ class InvitacionEmpleadoIn(BaseModel):
     empresa_id: conint(ge=1)
     sucursal_id: conint(ge=1) | None = None
 
-    @field_validator("email", mode="after")
+    @field_validator("usuario_email", mode="after")
     @classmethod
     def normalizar_email(cls, value: EmailStr) -> str:
         # Importante: .strip() elimina espacios invisibles

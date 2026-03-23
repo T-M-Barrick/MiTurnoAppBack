@@ -113,10 +113,10 @@ def verify_email_token(token: str):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("type") != "email":
-            raise exceptions.VerifyEmailInvalidExpiredTokenError()
+            raise exceptions.AuthVerifyEmailInvalidExpiredTokenError()
         return payload
     except JWTError:
-        raise exceptions.VerifyEmailInvalidExpiredTokenError()
+        raise exceptions.AuthVerifyEmailInvalidExpiredTokenError()
 
 # ---------------- RECUPERO DE CONTRASEÑA ---------------- #
 

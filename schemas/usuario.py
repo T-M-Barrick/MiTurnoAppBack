@@ -20,14 +20,14 @@ from core.timezone import validate_aware_utc
 from core.security import validate_password
 
 class UserCreate(BaseModel):
-    dni: constr(regex=r"^[0-9]{6,8}$")
+    dni: constr(pattern=r"^[0-9]{6,8}$")
     apellido: constr(min_length=1, max_length=50)
     nombre: constr(min_length=1, max_length=50)
     email: EmailStr = Field(..., max_length=255)
     password: SecretStr = Field(..., min_length=8, max_length=128)
     recordatorio: conint(ge=30, le=1410, multiple_of=30) | None
-    telefonos: conlist(Telefono, min_items=1)
-    direcciones: conlist(DireccionCreate, min_items=1)
+    telefonos: conlist(Telefono, min_length=1)
+    direcciones: conlist(DireccionCreate, min_length=1)
 
     @field_validator("email", mode="after")
     @classmethod
@@ -46,7 +46,7 @@ class UserCreate(BaseModel):
 
 class SucursalOut(BaseModel):
     id: conint(ge=1)
-    cuit: constr(regex=r"^[0-9]{11}$")
+    cuit: constr(pattern=r"^[0-9]{11}$")
     nombre: constr(min_length=1, max_length=100) # nombre completo (empresa - sucursal)
     email: EmailStr = Field(..., max_length=255)
     rubro: constr(min_length=1, max_length=100) | None
@@ -69,7 +69,7 @@ class TurnoUserOut(BaseModel):
     duracion: conint(gt=0, multiple_of=5)
     precio: condecimal(ge=0, max_digits=10, decimal_places=2)
     aclaracion_de_servicio: constr(min_length=1, max_length=255) | None
-    profesional_dni: constr(regex=r"^[0-9]{6,8}$") | None
+    profesional_dni: constr(pattern=r"^[0-9]{6,8}$") | None
     profesional_apellido: constr(min_length=1, max_length=50) | None
     profesional_nombre: constr(min_length=1, max_length=50) | None
     created_at: datetime
@@ -85,13 +85,13 @@ class TurnoUserOut(BaseModel):
 
 class UserLoginOut(BaseModel):
     id: conint(ge=1)
-    dni: constr(regex=r"^[0-9]{6,8}$")
+    dni: constr(pattern=r"^[0-9]{6,8}$")
     apellido: constr(min_length=1, max_length=50)
     nombre: constr(min_length=1, max_length=50)
     email: EmailStr = Field(..., max_length=255)
     recordatorio: conint(ge=30, le=1410, multiple_of=30) | None
-    telefonos: conlist(TelefonoConID, min_items=1)
-    direcciones: conlist(DireccionOut, min_items=1)
+    telefonos: conlist(TelefonoConID, min_length=1)
+    direcciones: conlist(DireccionOut, min_length=1)
     favoritos: list[SucursalOut]
     turnos: list[TurnoUserOut]
     notificaciones: NotificacionesOut
@@ -99,12 +99,12 @@ class UserLoginOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class UserUpdateIn(BaseModel):
-    dni: constr(regex=r"^[0-9]{6,8}$") | None = None
+    dni: constr(pattern=r"^[0-9]{6,8}$") | None = None
     apellido: constr(min_length=1, max_length=50) | None = None
     nombre: constr(min_length=1, max_length=50) | None = None
     recordatorio: conint(ge=30, le=1410, multiple_of=30) | None = None
-    telefonos: conlist(TelefonoConID, min_items=1) | None = None 
-    direcciones: conlist(DireccionUpdateIn, min_items=1) | None = None
+    telefonos: conlist(TelefonoConID, min_length=1) | None = None 
+    direcciones: conlist(DireccionUpdateIn, min_length=1) | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -132,13 +132,13 @@ class UserUpdateIn(BaseModel):
 
 class UserUpdateOut(BaseModel):
     id: conint(ge=1)
-    dni: constr(regex=r"^[0-9]{6,8}$")
+    dni: constr(pattern=r"^[0-9]{6,8}$")
     apellido: constr(min_length=1, max_length=50)
     nombre: constr(min_length=1, max_length=50)
     email: EmailStr = Field(..., max_length=255)
     recordatorio: conint(ge=30, le=1410, multiple_of=30) | None
-    telefonos: conlist(TelefonoConID, min_items=1)
-    direcciones: conlist(DireccionOut, min_items=1)
+    telefonos: conlist(TelefonoConID, min_length=1)
+    direcciones: conlist(DireccionOut, min_length=1)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -180,7 +180,7 @@ class ReservaTurnoUserIn(BaseModel):
 # Esto es para que el usuario pueda mandar que no le importa el profesional del servicio que está reservando.
 # El chequeo de que sea el mismo servicio o no se hace en la función crud.
 class ReservaTurnoOpcionesUserIn(BaseModel):
-    opciones: conlist(ReservaTurnoUserIn, min_items=1)
+    opciones: conlist(ReservaTurnoUserIn, min_length=1)
 
     @model_validator(mode="after")
     def validar_sucursal_id_y_fecha_hora(self) -> Self:
@@ -228,7 +228,7 @@ class TurnoHistorialUser(BaseModel):
     duracion: conint(gt=0, multiple_of=5)
     precio: condecimal(ge=0, max_digits=10, decimal_places=2)
     aclaracion_de_servicio: constr(min_length=1, max_length=255) | None
-    profesional_dni: constr(regex=r"^[0-9]{6,8}$") | None
+    profesional_dni: constr(pattern=r"^[0-9]{6,8}$") | None
     profesional_apellido: constr(min_length=1, max_length=50) | None
     profesional_nombre: constr(min_length=1, max_length=50) | None
     created_at: datetime
@@ -270,11 +270,11 @@ class ServicioUserConTurnosOut(BaseModel):
     nombre: constr(min_length=1, max_length=100)
     aclaracion: constr(min_length=1, max_length=255) | None
     profesional_id: conint(ge=1) | None
-    profesional_dni: constr(regex=r"^[0-9]{6,8}$") | None
+    profesional_dni: constr(pattern=r"^[0-9]{6,8}$") | None
     profesional_apellido: constr(min_length=1, max_length=50) | None
     profesional_nombre: constr(min_length=1, max_length=50) | None
     dias_max_reserva: conint(ge=0) | None
-    servicios: conlist(ServicioOut, min_items=1)
+    servicios: conlist(ServicioOut, min_length=1)
     turnos_actuales: list[TurnoActualDelServicio]
     excepciones_fechas: list[ExcepcionFechaServicioOut]
 

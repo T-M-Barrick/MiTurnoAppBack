@@ -44,7 +44,7 @@ NOTIFICACIONES = {
             # para front de sucursal con vos como profesional si lo sacó el cliente
             "sucursal_profesional": ["turno_id", "cliente_apellido", "cliente_nombre", "cuando", "profesional_id"],
         },
-    }
+    },
 
     "RECORDATORIO_USUARIO": {
         "title": "Recordatorio de turno",

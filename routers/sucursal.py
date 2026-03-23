@@ -9,7 +9,10 @@ from crud import common as crud_common
 from crud import sucursal as crud_sucursal
 from schemas import common as schemas_common
 from schemas import sucursal as schemas_sucursal
+from schemas import empresa as schemas_empresa
+from mappers import common as mappers_common
 from mappers import sucursal as mappers_sucursal
+from mappers import empresa as mappers_empresa
 
 router = APIRouter(prefix="/sucursales", tags=["Sucursales"])
 
@@ -562,7 +565,7 @@ def get_notificaciones_nuevas_sucursal(
 def update_notificacion_leida_sucursal(
     sucursal_id: int = Path(..., ge=1),
     notificacion_id: int = Path(..., ge=1),
-    current_user: models.Usuario = Depends(...),
+    current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
 ):
     crud_sucursal.update_notificacion_leida(db, sucursal_id, current_user.id, notificacion_id)
