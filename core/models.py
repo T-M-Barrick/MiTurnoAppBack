@@ -12,7 +12,6 @@ from sqlalchemy.orm import relationship, validates
 from sqlalchemy.dialects.postgresql import JSONB, ExcludeConstraint
 
 from core.database import Base
-from core import constantes
 
 def normalizar_email(email: str | None) -> str | None:
     if email is None:
@@ -39,7 +38,7 @@ def quitar_acentos(texto: str) -> str:
     texto = unicodedata.normalize("NFKD", texto)
     return "".join(c for c in texto if not unicodedata.combining(c))
 
-def generar_busqueda_texto_para_sucursal(target, connection):
+def generar_busqueda_texto_para_sucursal(target, connection) -> str:
 
     empresa_nombre = None
     empresa_rubro = None
@@ -66,7 +65,7 @@ def generar_busqueda_texto_para_sucursal(target, connection):
 
     return quitar_acentos(texto)
 
-def generar_busqueda_texto_para_cliente(target):
+def generar_busqueda_texto_para_cliente(target) -> str:
     texto = " ".join(filter(None, [
         target.dni,
         target.apellido,
@@ -74,7 +73,7 @@ def generar_busqueda_texto_para_cliente(target):
         target.email,
         target.telefono,
         target.telefono2,
-        target.observacion
+        target.observacion,
     ])).lower()
 
     return quitar_acentos(texto)
@@ -84,8 +83,8 @@ class Usuario(Base):
 
     id = Column(Integer, primary_key=True) # Al ser PK simple con Integer, SQLAlchemy sobreentiende que autoincrement=True y no es necesario ponerlo
     dni = Column(String(8), nullable=False)
-    apellido = Column(String(50), nullable=False) # nullable=False es NOT NULL
-    nombre = Column(String(50), nullable=False)
+    apellido = Column(String(30), nullable=False) # nullable=False es NOT NULL
+    nombre = Column(String(30), nullable=False)
     email = Column(String(255), nullable=False)
     email_normalizado = Column(String(255), unique=True, nullable=False)
     email_verificado = Column(Boolean, nullable=False)
@@ -129,12 +128,12 @@ class Empresa(Base):
 
     id = Column(Integer, primary_key=True)
     cuit = Column(String(11), nullable=False)
-    nombre = Column(String(50), nullable=False)
+    nombre = Column(String(40), nullable=False)
     email = Column(String(255), nullable=False)
     email_normalizado = Column(String(255), unique=True, nullable=False)
     email_verificado = Column(Boolean, nullable=False)
-    rubro = Column(String(100), nullable=True)
-    rubro2 = Column(String(100), nullable=True)
+    rubro = Column(String(50), nullable=True)
+    rubro2 = Column(String(50), nullable=True)
     logo_url = Column(String(255), nullable=True)
     logo_public_id = Column(String(50), nullable=True)
     fecha_hora_alta = Column(DateTime, nullable=True)
@@ -158,7 +157,7 @@ class Sucursal(Base):
 
     id = Column(Integer, primary_key=True)
     empresa_id = Column(Integer, ForeignKey("empresa.id"), nullable=False, index=True)
-    nombre = Column(String(50), nullable=True)
+    nombre = Column(String(40), nullable=True)
     email = Column(String(255), nullable=True)
     email_normalizado = Column(String(255), unique=True, nullable=True)
     email_verificado = Column(Boolean, nullable=True)
@@ -210,8 +209,8 @@ class Cliente(Base):
     id = Column(Integer, primary_key=True)
     sucursal_id = Column(Integer, ForeignKey("sucursal.id"), nullable=False)
     dni = Column(String(8), nullable=False)
-    apellido = Column(String(50), nullable=False)
-    nombre = Column(String(50), nullable=False)
+    apellido = Column(String(30), nullable=False)
+    nombre = Column(String(30), nullable=False)
     email = Column(String(255), nullable=False)
     email_normalizado = Column(String(255), nullable=False)
     telefono = Column(String(30), nullable=True)
@@ -286,9 +285,13 @@ class Direccion(Base):
     departamento = Column(String(255), nullable=True)
     provincia = Column(String(255), nullable=True)
     pais = Column(String(255), nullable=True)
-    lat = Column(Numeric(8, 6), nullable=False)
-    lng = Column(Numeric(9, 6), nullable=False)
+    lat = Column(Float, nullable=False)
+    lng = Column(Float, nullable=False)
     aclaracion = Column(String(255), nullable=True)
+
+    @validates("lat", "lng")
+    def normalizar_coordenada(self, key, value):
+        return round(float(value), 6)
 
     __table_args__ = (
         CheckConstraint("lat BETWEEN -90 AND 90", name="ck_lat_range"),
@@ -314,7 +317,7 @@ class Turno(Base):
     cliente_id = Column(Integer, ForeignKey("cliente_sucursal.id"), nullable=False)
     fecha_hora = Column(DateTime, nullable=False)
     servicio_id = Column(Integer, nullable=False) # apunta a la tabla Servicio
-    nombre_de_servicio = Column(String(100), nullable=False)
+    nombre_de_servicio = Column(String(50), nullable=False)
     duracion = Column(Integer, nullable=False) # minutos
     precio = Column(Numeric(10, 2), nullable=False) # 10 dígitos, 2 decimales
     aclaracion_de_servicio = Column(String(255), nullable=True) # cualquier aclaración o descripción
@@ -341,6 +344,27 @@ class Turno(Base):
         CheckConstraint("servicio_id >= 1", name="ck_turno_servicio_id_pos"),
         CheckConstraint("duracion > 0", name="ck_turno_duracion_pos"),
         CheckConstraint("precio >= 0", name="ck_turno_precio_pos"),
+        ExcludeConstraint(
+            (
+                func.tstzrange(
+                    Turno.fecha_hora,
+                    Turno.fecha_hora + func.make_interval(mins=Turno.duracion),
+                    '[)',
+                ),
+                "&&"
+            ),
+            (
+                Turno.usuario_id,
+                "="
+            ),
+            name="no_overlap_turnos_usuario",
+            using="gist",
+            where=and_(
+                Turno.usuario_id.isnot(None),
+                Turno.eliminado_por_usuario == False,
+                Turno.estado_turno_usuario_id == 1,
+            ),
+        ),
     )
 
     # Relationships
@@ -375,13 +399,13 @@ class ServicioBase(Base):
 
     id = Column(Integer, primary_key=True)
     sucursal_id = Column(Integer, ForeignKey("sucursal.id"), nullable=False)
-    nombre = Column(String(100), nullable=False)
+    nombre = Column(String(50), nullable=False)
     aclaracion = Column(String(255), nullable=True) # cualquier aclaración o descripción
     profesional_id = Column(Integer, ForeignKey("usuario.id"), nullable=True, index=True)
-    minutos_min_reserva = Column(Integer, nullable=False)
-    dias_max_reserva = Column(Integer, nullable=True) # contando el día actual e incluyendo al día puesto como el último
+    minutos_minimos_anticipacion_reserva = Column(Integer, nullable=False)
+    limite_dias_reserva = Column(Integer, nullable=True) # contando el día actual e incluyendo al día puesto como el último
     # Si este atributo es True, significa que solo puede cancelar los turnos de un profesional el mismo profesional o un superior suyo
-    cancelacion_limitada = Column(Boolean, nullable=False)
+    cancelacion_turno_limitada = Column(Boolean, nullable=False)
 
     __table_args__ = (
         UniqueConstraint(
@@ -391,9 +415,9 @@ class ServicioBase(Base):
             name="uq_servicio_sucursal_nombre_profesional",
             postgresql_nulls_not_distinct=True,
         ),
-        CheckConstraint("minutos_min_reserva >= 0", name="ck_servicio_minutos_min_reserva"),
+        CheckConstraint("minutos_minimos_anticipacion_reserva >= 0", name="ck_servicio_minutos_minimos_anticipacion_reserva"),
         CheckConstraint(
-            "dias_max_reserva >= 0", name="ck_servicio_dias_max_reserva"
+            "limite_dias_reserva >= 0", name="ck_servicio_limite_dias_reserva"
         ), # puede ser 0 ya que quizás el admin quiso sacar temporalmente el servicio sin borrarlo
     )
 
@@ -599,9 +623,29 @@ class Notificacion(Base):
     leida = Column(Boolean, nullable=False)
 
     __table_args__ = (
-        Index("ix_notificacion_usuario_id_fecha_hora_id", usuario_id, fecha_hora_minima_de_envio, id),
-        Index("ix_notificacion_usuario_id_empresa_id_fecha_hora_id", usuario_id, empresa_id, fecha_hora_minima_de_envio, id),
-        Index("ix_notificacion_usuario_id_sucursal_id_fecha_hora_id", usuario_id, sucursal_id, fecha_hora_minima_de_envio, id),
+        Index(
+            "ix_notificacion_usuario",
+            usuario_id,
+            fecha_hora_minima_de_envio,
+            id.desc(),
+            postgresql_where=text("empresa_id IS NULL AND sucursal_id IS NULL")
+        ),
+        Index(
+            "ix_notificacion_empresa",
+            usuario_id,
+            empresa_id,
+            fecha_hora_minima_de_envio,
+            id.desc(),
+            postgresql_where=text("empresa_id IS NOT NULL")
+        ),
+        Index(
+            "ix_notificacion_sucursal",
+            usuario_id,
+            sucursal_id,
+            fecha_hora_minima_de_envio,
+            id.desc(),
+            postgresql_where=text("sucursal_id IS NOT NULL")
+        ),
         Index("ix_notificacion_limpieza", leida, created_at),
         CheckConstraint(
             "NOT (empresa_id IS NOT NULL AND sucursal_id IS NOT NULL)",

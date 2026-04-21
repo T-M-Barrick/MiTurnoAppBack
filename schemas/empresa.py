@@ -1,5 +1,4 @@
-from datetime import datetime, timedelta, date, time
-from typing import Self
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, conint, condecimal, constr, conlist, field_validator, model_validator
 
@@ -8,21 +7,18 @@ from schemas.common import (
     TelefonoConID,
     DireccionCreate,
     DireccionOut,
-    DireccionUpdateIn,
     MiembroOut,
     NotificacionesOut,
-    EstadoTurno,
     RolEmpresa,
     RolSucursal,
 )
-from core.timezone import validate_aware_utc
 
 class EmpresaCreate(BaseModel):
     cuit: constr(pattern=r"^[0-9]{11}$")
-    nombre: constr(min_length=1, max_length=50)
+    nombre: constr(min_length=1, max_length=40)
     email: EmailStr = Field(..., max_length=255)
-    rubro: constr(min_length=1, max_length=100) | None
-    rubro2: constr(min_length=1, max_length=100) | None
+    rubro: constr(min_length=1, max_length=50) | None
+    rubro2: constr(min_length=1, max_length=50) | None
     reserva_publica_habilitada: bool
     telefonos: list[Telefono] # se va a guardar en la sucursal que se hace por defecto
     direccion: DireccionCreate # obligatorio al crear una empresa (se va a guardar en la sucursal que se hace por defecto)
@@ -37,10 +33,11 @@ class EmpresaCreate(BaseModel):
 
 class SucursalPerfilOut(BaseModel):
     id: conint(ge=1)
-    nombre: constr(min_length=1, max_length=50) | None # sin incluir el nombre original de la empresa; si la empresa tiene una sola sucursal, nombre es None sí o sí
+    nombre: constr(min_length=1, max_length=40) | None # sin incluir el nombre original de la empresa; si la empresa tiene una sola sucursal, nombre es None sí o sí
     email: EmailStr | None = Field(..., max_length=255)
     reserva_publica_habilitada: bool
     calificacion: condecimal(ge=0, le=10, max_digits=4, decimal_places=2) | None
+    activa: bool
     telefonos: list[TelefonoConID]
     direccion: DireccionOut
 
@@ -48,7 +45,7 @@ class SucursalPerfilOut(BaseModel):
 
 class EmpresaHomeOut(BaseModel):
     id: conint(ge=1)
-    nombre: constr(min_length=1, max_length=50)
+    nombre: constr(min_length=1, max_length=40)
     logo_url: constr(min_length=1, max_length=255) | None
     sucursales: list[SucursalPerfilOut]
     notificaciones: NotificacionesOut
@@ -59,25 +56,24 @@ class EmpresaHomeOut(BaseModel):
 class EmpresaPerfilOut(BaseModel):
     id: conint(ge=1)
     cuit: constr(pattern=r"^[0-9]{11}$")
-    nombre: constr(min_length=1, max_length=50)
+    nombre: constr(min_length=1, max_length=40)
     email: EmailStr = Field(..., max_length=255)
-    rubro: constr(min_length=1, max_length=100) | None
-    rubro2: constr(min_length=1, max_length=100) | None
+    rubro: constr(min_length=1, max_length=50) | None
+    rubro2: constr(min_length=1, max_length=50) | None
     logo_url: constr(min_length=1, max_length=255) | None
     sucursales: list[SucursalPerfilOut]
-    rol: RolEmpresa
 
     model_config = ConfigDict(from_attributes=True)
 
 class EmpresaUpdateIn(BaseModel):
     cuit: constr(pattern=r"^[0-9]{11}$") | None = None
-    nombre: constr(min_length=1, max_length=50) | None = None
-    rubro: constr(min_length=1, max_length=100) | None = None
-    rubro2: constr(min_length=1, max_length=100) | None = None
+    nombre: constr(min_length=1, max_length=40) | None = None
+    rubro: constr(min_length=1, max_length=50) | None = None
+    rubro2: constr(min_length=1, max_length=50) | None = None
 
     @model_validator(mode="before")
     @classmethod
-    def validar_campos_not_null(cls, values):
+    def validar_campos_not_null(cls, values: Any) -> Any:
         """
         Rechaza cualquier campo que sea explícitamente enviado como None, exceptuando los campos en la lista de campos permitidos.
         Los campos que no se envíen simplemente se ignoran.
@@ -113,7 +109,7 @@ class MiembroEmpresaOut(BaseModel):
 
 class SucursalDeMiembro(BaseModel):
     id: conint(ge=1)
-    nombre: constr(min_length=1, max_length=50) | None # sin incluir el nombre original de la empresa; si la empresa tiene una sola sucursal, nombre es None sí o sí
+    nombre: constr(min_length=1, max_length=40) | None # sin incluir el nombre original de la empresa; si la empresa tiene una sola sucursal, nombre es None sí o sí
     rol: RolSucursal # rol dentro de la sucursal
 
     model_config = ConfigDict(from_attributes=True)

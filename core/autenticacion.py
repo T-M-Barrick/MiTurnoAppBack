@@ -7,7 +7,7 @@ from passlib.context import CryptContext
 from sqlalchemy.orm import Session, joinedload, selectinload
 from jose import JWTError, jwt
 
-from core import models, exceptions, timezone
+from core import models, exceptions, timezone, mensajes
 from core.config import SECRET_KEY, ALGORITHM, COOKIE_NAME
 from core.database import get_db
 
@@ -23,7 +23,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 # ------------------ AUTENTICACIÓN ------------------ #
 '''La autenticación es el proceso de verificar la identidad de alguien que ya tiene cuenta. Se compara lo 
 que ingresa (email + contraseña por ejemplo) con lo que está guardado en la base de datos. Si coincide, recibe el acceso a la cuenta.'''
-def authenticate(session: Session, email: str, password: str):
+def authenticate(session: Session, email: str, password: str) -> models.Usuario | None:
 
     email_normalizado = models.normalizar_email(email)
 
@@ -46,8 +46,10 @@ def authenticate(session: Session, email: str, password: str):
     return None
 
 # Esta función chequea el token. Se usa cuando el usuario hace algo con el back que no sea registrarse o loguearse
-def get_current_user(token: str = Cookie(default=None, # token: str = Cookie() le dice a FastAPI: Busca en la request HTTP una cookie llamada como config.COOKIE_NAME y pasala a esta función.
-                    alias=COOKIE_NAME), db: Session = Depends(get_db)):
+def get_current_user(
+    token: str = Cookie(default=None, alias=COOKIE_NAME), # token: str = Cookie() le dice a FastAPI: Busca en la request HTTP una cookie llamada como config.COOKIE_NAME y pasala a esta función.
+    db: Session = Depends(get_db),
+) -> models.Usuario:
 
     if token is None:
         raise exceptions.AuthTokenMissingError()
@@ -72,7 +74,7 @@ def get_current_user(token: str = Cookie(default=None, # token: str = Cookie() l
             selectinload(models.Usuario.favoritos).joinedload(models.Sucursal.empresa),
             selectinload(models.Usuario.favoritos).selectinload(models.Sucursal.telefonos),
             selectinload(models.Usuario.favoritos).joinedload(models.Sucursal.direccion),
-            selectinload(models.Usuario.favoritos).selectinload(models.Sucursal.servicios),
+            selectinload(models.Usuario.favoritos).selectinload(models.Sucursal.servicios_base),
         )
         .filter(models.Usuario.id == entity_id).first()
     )
@@ -86,15 +88,17 @@ def get_current_user(token: str = Cookie(default=None, # token: str = Cookie() l
     return user
 
 # ------------------ TOKEN JWT ------------------ #
-def create_email_token(data: dict, expires_delta: timedelta):
+def create_email_token(data: dict, expires_delta: timedelta) -> str:
     to_encode = data.copy()
+    if "sub" in to_encode:
+        to_encode["sub"] = str(to_encode["sub"]) # jose requiere que sub sea string
     expire = datetime.utcnow() + expires_delta
     to_encode.update({"exp": expire})
     to_encode.update({"type": "email"})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-def create_access_token(data: dict, expires_delta: timedelta):
+def create_access_token(data: dict, expires_delta: timedelta) -> str:
     to_encode = data.copy()
     jti = str(uuid4())
     to_encode.update({"jti": jti})
@@ -109,7 +113,7 @@ def create_access_token(data: dict, expires_delta: timedelta):
     return encoded_jwt
 
 # ------------------ VERIFICACIONES ------------------ #
-def verify_email_token(token: str):
+def verify_email_token(token: str) -> dict:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("type") != "email":
@@ -158,7 +162,7 @@ def generate_password_reset_token(session: Session, email: str) -> str:
     
     return token_plano
 
-def reset_password_email(session: Session, token_plano: str, new_password: str):
+def reset_password_email(session: Session, token_plano: str, new_password: str) -> models.Usuario:
 
     # Hashear el token recibido para poder buscarlo
     # Importante: usar la misma lógica que al generar (sha256 + hexdigest)
@@ -202,7 +206,7 @@ def reset_password_email(session: Session, token_plano: str, new_password: str):
 
 # ---------------- VÍA TELÉFONO ---------------- #
 
-def generate_password_reset_otp(db: Session, telefono: str, email: str):
+def generate_password_reset_otp(db: Session, telefono: str, email: str) -> tuple[models.Usuario, str]:
 
     usuario = db.query(models.Usuario).join(models.Telefono).filter(models.Telefono.numero == telefono).first()
 
@@ -246,7 +250,7 @@ def generate_password_reset_otp(db: Session, telefono: str, email: str):
         db.rollback()
         raise
 
-def reset_password_mobile(db: Session, telefono: str, otp: str, new_password: str):
+def reset_password_mobile(db: Session, telefono: str, otp: str, new_password: str) -> models.Usuario:
 
     usuario = db.query(models.Usuario).join(models.Telefono).filter(models.Telefono.numero == telefono).first()
 

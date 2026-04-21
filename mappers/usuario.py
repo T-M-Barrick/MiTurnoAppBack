@@ -1,23 +1,21 @@
-from datetime import datetime, timedelta
-
-from mappers.common import telefonos, direccion_out, servicio_out, excepcion_fecha_servicio_out, notificaciones_out
-from core import auxiliares, timezone
+from mappers.common import telefonos, direccion_out, notificaciones_out
+from core import models, auxiliares, timezone
 from schemas import common as schemas_common
 from schemas import usuario as schemas_usuario
 
-def base_usuario_dict(user):
+def base_usuario_dict(user: models.Usuario) -> dict:
     return dict(
         id=user.id,
         dni=user.dni,
         apellido=user.apellido,
         nombre=user.nombre,
         email=user.email,
-        recordatorio=user.recordatorio_minutos_antes,
+        recordatorio_minutos_antes=user.recordatorio_minutos_antes,
         telefonos=telefonos(user.telefonos),
         direcciones=[direccion_out(direccion) for direccion in user.direcciones],
     )
 
-def sucursal_out(sucursal):
+def sucursal_out(sucursal: models.Sucursal) -> schemas_usuario.SucursalOut:
     return schemas_usuario.SucursalOut(
         id=sucursal.id,
         cuit=sucursal.empresa.cuit,
@@ -31,7 +29,7 @@ def sucursal_out(sucursal):
         logo_url=sucursal.empresa.logo_url,
     )
 
-def turno_user_out(turno):
+def turno_user_out(turno: models.Turno) -> schemas_usuario.TurnoUserOut:
     tiene_profesional = turno.profesional_id != None
 
     if turno.recordatorio_fecha_hora is not None:
@@ -56,11 +54,17 @@ def turno_user_out(turno):
         profesional_nombre=turno.profesional.nombre if tiene_profesional else None,
         created_at=timezone.ensure_utc(turno.created_at),
         estado_turno=turno.estado_turno_usuario.estado,
-        recordatorio=minutos_antes,
+        recordatorio_minutos_antes=minutos_antes,
     )
 
 # Convierte un objeto de la clase Usuario de SQLAlchemy en uno de clase UsuarioLoginOut de Pydantic
-def user_login_out(user, turnos, notificaciones, ultimo_cursor_id):
+def user_login_out(
+    user: models.Usuario,
+    turnos: list[models.Turno],
+    notificaciones: list[models.Notificacion],
+    ultimo_cursor_id: int | None,
+) -> schemas_usuario.UserLoginOut:
+
     data = base_usuario_dict(user)
 
     data["favoritos"] = [sucursal_out(sucursal) for sucursal in user.favoritos]
@@ -70,29 +74,33 @@ def user_login_out(user, turnos, notificaciones, ultimo_cursor_id):
     return schemas_usuario.UserLoginOut(**data)
 
 # Convierte un objeto de la clase Usuario de SQLAlchemy en uno de clase UsuarioUpdateOut de Pydantic
-def user_update_out(user):
+def user_update_out(user: models.Usuario) -> schemas_usuario.UserUpdateOut:
     data = base_usuario_dict(user)
 
     return schemas_usuario.UserUpdateOut(**data)
 
-def rol_empresa_out(miembro_empresa):
+def rol_empresa_out(miembro_empresa: models.Miembro_Empresa) -> schemas_usuario.RolEmpresaOut:
     return schemas_usuario.RolEmpresaOut(
         empresa_id=miembro_empresa.empresa_id,
         nombre_empresa=miembro_empresa.empresa.nombre,
         logo_empresa_url=miembro_empresa.empresa.logo_url,
+        email=miembro_empresa.empresa.email,
         rol=miembro_empresa.rol.nombre,
     )
 
-def rol_sucursal_out(miembro_sucursal):
+def rol_sucursal_out(miembro_sucursal: models.Miembro_Sucursal) -> schemas_usuario.RolSucursalOut:
     return schemas_usuario.RolSucursalOut(
         sucursal_id=miembro_sucursal.sucursal_id,
         nombre_sucursal=auxiliares.nombre_empresa(miembro_sucursal.sucursal.empresa.nombre, miembro_sucursal.sucursal.nombre),
         logo_empresa_url=miembro_sucursal.sucursal.empresa.logo_url,
-        direccion=direccion_out(miembro_sucursal.sucursal.direccion),
+        email=miembro_sucursal.sucursal.email if miembro_sucursal.sucursal.email else miembro_sucursal.sucursal.empresa.email,
         rol=miembro_sucursal.rol.nombre,
     )
 
-def mis_empresas_out(miembro_empresas, miembro_sucursales):
+def mis_empresas_out(
+    miembro_empresas: list[models.Miembro_Empresa],
+    miembro_sucursales: list[models.Miembro_Sucursal],
+) -> schemas_usuario.MisEmpresasOut:
 
     empresas = schemas_usuario.MisEmpresasOut(
         empresas=[rol_empresa_out(m_e) for m_e in miembro_empresas],
@@ -101,16 +109,17 @@ def mis_empresas_out(miembro_empresas, miembro_sucursales):
 
     return empresas
 
-def turno_estado_out(turno):
+def turno_estado_out(turno: models.Turno) -> schemas_common.TurnoEstadoOut:
     return schemas_common.TurnoEstadoOut(
         id=turno.id,
         estado=turno.estado_turno_usuario.estado,
     )
 
-def turno_historial_user(h):
+def turno_historial_user(h: models.Turno) -> schemas_usuario.TurnoHistorialUser:
     tiene_profesional = h.profesional_id != None
 
     return schemas_usuario.TurnoHistorialUser(
+        id=h.id,
         sucursal=auxiliares.nombre_empresa(h.sucursal.empresa.nombre, h.sucursal.nombre),
         logo_empresa_url=h.sucursal.empresa.logo_url,
         fecha_hora=timezone.ensure_utc(h.fecha_hora),
@@ -124,60 +133,3 @@ def turno_historial_user(h):
         created_at=timezone.ensure_utc(h.created_at),
         estado_turno=h.estado_turno_usuario.estado if h.estado_turno_usuario else None,
     )
-
-def turno_actual_del_servicio(turno):
-    return schemas_usuario.TurnoActualDelServicio(
-        id=turno.id,
-        fecha_hora=timezone.ensure_utc(turno.fecha_hora),
-        duracion=turno.duracion,
-    )
-
-def servicio_user_con_turnos_out(servicio_base, turnos_actuales):
-    usuario = servicio_base.profesional if servicio_base.profesional_id != None else None
-
-    servicio_out = schemas_usuario.ServicioUserConTurnosOut(
-        id=servicio_base.id,
-        nombre=servicio_base.nombre,
-        aclaracion=servicio_base.aclaracion,
-        profesional_id=servicio_base.profesional_id if usuario else None,
-        profesional_dni=usuario.dni if usuario else None,
-        profesional_apellido=usuario.apellido if usuario else None,
-        profesional_nombre=usuario.nombre if usuario else None,
-        dias_max_reserva=servicio_base.dias_max_reserva,
-        servicios=[servicio_out(servicio) for servicio in servicio_base.servicios],
-        turnos_actuales=turnos_actuales,
-        excepciones_fechas=[excepcion_fecha_servicio_out(excepcion) for excepcion in servicio_base.excepciones_fechas],
-    )
-
-    return servicio_out
-
-def list_servicio_user_con_turnos_out(servicios_base, turnos):
-
-    turnos_por_servicio_base: dict[int, list[schemas_usuario.TurnoActualDelServicio]] = {}
-
-    servicio_base_map = {}
-
-    for servicio_base in servicios_base:
-        for servicio in servicio_base.servicios:
-            servicio_base_map[servicio.id] = servicio_base.id
-    
-    for t in turnos:
-        turno_out = turno_actual_del_servicio(t)
-
-        servicio_base_id = servicio_base_map.get(t.servicio_id)
-
-        if servicio_base_id:
-            turnos_por_servicio_base.setdefault(servicio_base_id, []).append(turno_out)
-
-    servicios_out = []
-
-    for servicio_base in servicios_base:
-
-        servicio_out = servicio_user_con_turnos_out(
-            servicio_base,
-            turnos_por_servicio_base.get(servicio_base.id, []),
-        )
-
-        servicios_out.append(servicio_out)
-
-    return servicios_out

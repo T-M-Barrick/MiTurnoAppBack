@@ -8,15 +8,15 @@ from PIL import Image
 from sqlalchemy.orm import Session
 
 from core.constantes import DIAS_NOMBRES, MAX_LOGO_SIZE
-from core import exceptions, timezone
+from core import models, exceptions, timezone
 
-def mapear_nombre_dia_semana(dia: int):
+def mapear_nombre_dia_semana(dia: int) -> str:
 
     dia_nombre = DIAS_NOMBRES[dia]
 
     return dia_nombre
 
-def nombre_empresa(empresa_nombre: str, sucursal_nombre: str | None):
+def nombre_empresa(empresa_nombre: str, sucursal_nombre: str | None) -> str:
     emp_nombre = empresa_nombre
     if sucursal_nombre:
         emp_nombre += f' - {sucursal_nombre}'
@@ -29,7 +29,7 @@ def quitar_acentos(texto: str) -> str:
     texto = unicodedata.normalize("NFKD", texto)
     return "".join(c for c in texto if not unicodedata.combining(c))
 
-def buscar_localidad(provincia: str, municipio: str, localidad: str, url: str):
+def buscar_localidad(provincia: str, municipio: str, localidad: str, url: str) -> dict:
     """
     Busca las coordenadas de una localidad usando Nominatim (OpenStreetMap).
     Devuelve lat y lng.
@@ -60,10 +60,13 @@ def buscar_localidad(provincia: str, municipio: str, localidad: str, url: str):
 
     if not lat or not lon:
         raise exceptions.GeoRefInvalidResponseError() # la localidad no tiene coordenadas
+    
+    lat = round(float(lat), 6)
+    lng = round(float(lon), 6)
 
-    return {"lat": lat, "lng": lon}
+    return {"lat": lat, "lng": lng}
 
-def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, calle: str, altura: str, url: str):
+def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, calle: str, altura: str, url: str) -> dict:
     """
     Busca coordenadas y dirección completa usando la URL que le pases.
     Si la URL es de Nominatim, hace forward geocoding (calle + altura → lat/lon).
@@ -96,6 +99,9 @@ def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, ca
     if not lat or not lon:
         raise exceptions.GeoRefInvalidResponseError() # la dirección no tiene coordenadas
     
+    lat = round(float(lat), 6)
+    lng = round(float(lon), 6)
+
     calle_nominatim = ""
     address = d.get("address", {})
     if address:
@@ -108,11 +114,15 @@ def buscar_direccion_completa(provincia: str, municipio: str, localidad: str, ca
         partes = display_name.split(",")
         if len(partes) >= 2:
             calle_nominatim = partes[1].strip()
+    
+    # Descartar si Nominatim devolvió la altura como nombre de calle (error de datos en OSM)
+    if calle_nominatim and calle_nominatim.strip() == altura.strip():
+        calle_nominatim = ""
 
-    return {"lat": lat, "lng": lon, "calle": calle_nominatim}
+    return {"lat": lat, "lng": lng, "calle": calle_nominatim}
 
 # las coordenadas1 son las de la casa del usuario y las coordenadas2 son de la sucursal que se está analizando
-def distancia_km(lat1, lng1, lat2, lng2):
+def distancia_km(lat1, lng1, lat2, lng2) -> float:
     R = 6371 # radio terrestre en km que sirve para la fórmula Haversine
     dlat = math.radians(lat2 - lat1)
     dlng = math.radians(lng2 - lng1)
@@ -150,21 +160,23 @@ def rol_superior(rol1: str, rol2: str) -> bool:
     except KeyError as e:
         raise ValueError(f"Rol inválido: {e.args[0]}")
 
-def validar_logo(logo_bytes: bytes):
+def validar_logo(logo_bytes: bytes) -> None:
 
     if len(logo_bytes) > MAX_LOGO_SIZE:
-        maximo = MAX_LOGO_SIZE // 1024
-        raise exceptions.LogoTooLargeError(field="logo", max_kb=maximo)
-
+        maximo = MAX_LOGO_SIZE // (1024**2)
+        raise exceptions.LogoTooLargeError(field="logo", max_mb=maximo)
+    
     try:
         with Image.open(io.BytesIO(logo_bytes)) as img:
-            if img.format not in ["PNG", "JPEG", "WEBP"]: # como formato no existe JPG, sino que es JPEG
-                raise exceptions.LogoInvalidFormatError(
-                    field="logo",
-                    allowed=["PNG", "JPG", "WEBP"] # le devuelvo al usuario JPG para que entienda
-                )
+            formato = img.format
     except Exception:
         raise exceptions.LogoInvalidError(field="logo")
+
+    if formato not in ["PNG", "JPEG", "WEBP"]: # como formato no existe JPG, sino que es JPEG
+        raise exceptions.LogoInvalidFormatError(
+            field="logo",
+            allowed=["PNG", "JPG", "WEBP"], # le devuelvo al usuario JPG para que entienda
+        )
 
 def formatear_fecha_hora_turno(fecha_hora_turno_aware_utc: datetime) -> str:
 

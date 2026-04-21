@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
+import threading
 
-from fastapi import APIRouter, Depends, Response, Path, Query, BackgroundTasks
-from sqlalchemy.orm import Session, joinedload, selectinload # Session de SQLAlchemy, representa una sesión de base de datos.
+from fastapi import APIRouter, Depends, Path, Query, BackgroundTasks
+from sqlalchemy.orm import Session, joinedload # Session de SQLAlchemy, representa una sesión de base de datos.
 
 from core import models, constantes, exceptions, config, autenticacion, timezone
 from core.database import get_db
@@ -18,20 +19,19 @@ router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 # prefix="/usuarios" agrega un prefijo automático a todos los endpoints que se declaren dentro del router (este módulo).
 # tags=["Usuarios"] sirve para organizar la documentación automática de Swagger (/docs).
 
-# {"message": "Para validar su registro, le hemos enviamos un correo a su casilla con un enlace para verificar su cuenta"}
 @router.post("/", status_code=201) # @router.post("/usuarios/") indica que esta función responde a POST en /usuarios/.
-def create_usuario(
+def crear_usuario(
     user: schemas_usuario.UserCreate,
     background_tasks: BackgroundTasks, # clave para el tiempo constante
     db: Session = Depends(get_db),
-):
+) -> dict:
     """
     Crea un nuevo usuario en la base de datos (registro).
     - Verifica que el email no esté ya registrado.
     - Hashea la contraseña antes de guardar.
     - Devuelve el OK en caso de éxito.
     """
-    usuario = crud_usuario.create_usuario(db, user)
+    usuario, usuario_ya_existia = crud_usuario.crear_usuario(db, user)
 
     limite_no_sobrepasado = crud_common.check_email_rate_limit(db, usuario.email, "REGISTER")
 
@@ -42,34 +42,45 @@ def create_usuario(
             expires_delta=timedelta(hours=config.VERIFY_EMAIL_TOKEN_EXPIRE_HOURS),
         )
 
-        # DE FONDO: Para que la respuesta sea instantánea
-        background_tasks.add_task(services_auth.background_send_verification_email, usuario.email, token)
+        if usuario_ya_existia:
 
-    return {}
+            threading.Thread(
+                target=services_auth.background_send_verification_email,
+                args=(usuario.email, "usuario", token),
+                daemon=True,
+            ).start()
 
-# {"message": "Correo verificado con éxito"}
+        else:
+            # DE FONDO: Para que la respuesta sea instantánea
+            background_tasks.add_task(services_auth.background_send_verification_email, usuario.email, "usuario", token)
+
+    if usuario_ya_existia:
+        raise exceptions.UserAlreadyExistsButNotVerifiedError()
+    else:
+        return {}
+
 @router.get("/verificacion/email", status_code=204)
-def verificacion_email_usuario(
+def verificar_email(
     token: str = Query(..., min_length=20, max_length=1000),
     db: Session = Depends(get_db),
-):
+) -> None:
 
-    crud_common.verificacion_email(db, token)
+    crud_common.verificar_email(db, token)
 
 @router.get("/me", response_model=schemas_usuario.UserLoginOut, status_code=200)
 def me(
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
-):
+) -> schemas_usuario.UserLoginOut:
     '''
     Esto es para que cuando el creat o login dé el OK, el navegador pida los datos del
     usuario para el HTML del panel del usuario.
     También se usa para que el usuario entre a su panel de una cuando abra la app o dominio y ya estaba logueado y 
     el navegador ya tiene la cookie y así el usuario no tiene que poner de vuelta la contraseña y el email.
     '''
-    turnos = crud_usuario.get_turnos(db, current_user.id)
+    turnos = crud_usuario.obtener_turnos(db, current_user.id)
 
-    notificaciones, ultimo_cursor_id = crud_usuario.get_notificaciones(db, current_user.id)
+    notificaciones, ultimo_cursor_id = crud_common.obtener_notificaciones(db, current_user.id)
     
     us = mappers_usuario.user_login_out(current_user, turnos, notificaciones, ultimo_cursor_id)
 
@@ -77,23 +88,23 @@ def me(
 
 # Actualizar usuario (datos simples, telefonos y direcciones)
 @router.patch("/me", response_model=schemas_usuario.UserUpdateOut, status_code=200)
-def update_usuario(
+def modificar_usuario(
     user_update: schemas_usuario.UserUpdateIn,
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
-):
+) -> schemas_usuario.UserUpdateOut:
 
-    user = crud_usuario.update(db, current_user, user_update)
+    user = crud_usuario.modificar(db, current_user, user_update)
     
     us = mappers_usuario.user_update_out(user)
 
     return us
 
 @router.get("/mis-empresas", response_model=schemas_usuario.MisEmpresasOut, status_code=200)
-def get_roles(
+def obtener_roles_en_empresas_y_sucursales(
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
-):
+) -> schemas_usuario.MisEmpresasOut:
 
     # Traer roles en empresas (es una lista de objetos Miembro_Empresa de SQAlchemy)
     roles_en_empresas = (
@@ -131,7 +142,7 @@ def reservar_turno(
     reserva: schemas_usuario.ReservaTurnoOpcionesUserIn,
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
-):
+) -> schemas_usuario.TurnoUserOut:
 
     turno = crud_usuario.reservar_turno(db, current_user, reserva)
 
@@ -141,14 +152,14 @@ def reservar_turno(
 
 # Modifica el estado de un turno de la tabla Turno y devuelve el turno con el estado modificado
 @router.patch("/turnos/{turno_id}/estado", response_model=schemas_usuario.TurnoUserOut, status_code=200)
-def update_estado_turno_usuario(
+def modificar_estado_turno(
     turno_update: schemas_usuario.TurnoEstadoUpdateIn,
     turno_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
-):
+) -> schemas_usuario.TurnoUserOut:
 
-    turno_modificado = crud_usuario.update_estado_turno(db, current_user, turno_id, turno_update)
+    turno_modificado = crud_usuario.modificar_estado_turno(db, current_user, turno_id, turno_update)
     
     turno_out = mappers_usuario.turno_user_out(turno_modificado)
 
@@ -156,36 +167,36 @@ def update_estado_turno_usuario(
 
 # Modifica el recordatorio de un turno de la tabla Turno y devuelve el turno con el recordatorio modificado
 @router.patch("/turnos/{turno_id}/recordatorio", response_model=schemas_usuario.TurnoUserOut, status_code=200)
-def update_recordatorio_turno_usuario(
+def modificar_recordatorio_turno(
     recordatorio: schemas_usuario.TurnoRecordatorioUpdateIn,
     turno_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
-):
+) -> schemas_usuario.TurnoUserOut:
 
-    turno_modificado = crud_usuario.update_recordatorio_turno(db, current_user.id, turno_id, recordatorio.minutos_antes)
+    turno_modificado = crud_usuario.modificar_recordatorio_turno(db, current_user.id, turno_id, recordatorio.minutos_antes)
     
     turno_out = mappers_usuario.turno_user_out(turno_modificado)
 
     return turno_out
 
 @router.delete("/turnos/{turno_id}", status_code=204)
-def delete_turno_usuario(
+def eliminar_turno(
     turno_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
-):
+) -> None:
 
-    crud_usuario.delete_turno(db, current_user.id, turno_id, constantes.LISTA_PARCIAL_DE_ESTADOS)
+    crud_usuario.eliminar_turno(db, current_user.id, turno_id, constantes.LISTA_PARCIAL_DE_ESTADOS)
 
 # Cada 5 minutos el front pregunta por los estados de sus turnos
 @router.get("/turnos/estados", response_model=list[schemas_common.TurnoEstadoOut], status_code=200)
-def get_estados_turnos_usuario(
+def obtener_estados_turnos(
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
-):
+) -> list[schemas_common.TurnoEstadoOut]:
 
-    turnos = crud_usuario.get_estados_turnos(db, current_user.id)
+    turnos = crud_usuario.obtener_estados_turnos(db, current_user.id)
 
     turnos_estados = [mappers_usuario.turno_estado_out(turno) for turno in turnos]
 
@@ -193,21 +204,25 @@ def get_estados_turnos_usuario(
 
 # Devuelve todos los turnos que el usuario ya completó (el primero devuelto será el más reciente)
 @router.get("/turnos/historial", response_model=schemas_usuario.HistorialUserOut, status_code=200)
-def get_historial_usuario(
+def obtener_historial(
     fecha_hora_ultima: datetime | None = Query(default=None),
     id_ultimo: int | None = Query(default=None, ge=1),
     limit: int = Query(default=50, ge=1, le=100, alias="limite"),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
-):
+) -> schemas_usuario.HistorialUserOut:
     
     # si el fecha_hora_ultima fue pasado, se toma, y si no, se toma datetime.max
     fecha_hora_ultima = timezone.to_naive_utc(fecha_hora_ultima) if fecha_hora_ultima else datetime.max
 
     id_ultimo = id_ultimo if id_ultimo else 2**31 - 1 # valor grande si no viene
 
-    historial, ultimo_cursor = crud_usuario.get_historial(
-        db, current_user.id, fecha_hora_ultima=fecha_hora_ultima, id_ultimo=id_ultimo, limit=limit,
+    historial, ultimo_cursor = crud_usuario.obtener_historial(
+        db,
+        current_user.id,
+        fecha_hora_ultima=fecha_hora_ultima,
+        id_ultimo=id_ultimo,
+        limit=limit,
     )
     
     historial_out = [mappers_usuario.turno_historial_user(h) for h in historial]
@@ -222,68 +237,57 @@ def get_historial_usuario(
 
 # Devuelve lista de sucursales (sin duplicados) con coincidencia parcial de nombre y/o rubros
 @router.get("/sucursales", response_model=list[schemas_usuario.SucursalOut], status_code=200)
-def get_sucursales(
+def obtener_sucursales(
     search: str = Query(..., min_length=3, alias="busqueda"),
     lat: float = Query(..., ge=-90, le=90),
     lng: float = Query(..., ge=-180, le=180),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
-):
+) -> list[schemas_usuario.SucursalOut]:
 
-    sucursales = crud_usuario.get_sucursales(db, search, lat, lng) # sucursales es una lista de objetos de clase Sucurusal de SQLAlchemy
+    lat = round(lat, 6)
+    lng = round(lng, 6)
+
+    sucursales = crud_usuario.obtener_sucursales(db, search, lat, lng)
 
     resultados = [mappers_usuario.sucursal_out(sucursal) for sucursal in sucursales]
 
     return resultados
 
-# Se envía al hacer click en la sucursal
-@router.get("/sucursales/{sucursal_id}/servicios", response_model=list[schemas_usuario.ServicioUserConTurnosOut], status_code=200)
-def get_servicios_de_sucursal(
-    sucursal_id: int = Path(..., ge=1),
-    current_user: models.Usuario = Depends(autenticacion.get_current_user),
-    db: Session = Depends(get_db),
-):
-
-    servicios, turnos = crud_usuario.get_servicios_de_sucursal(db, current_user.email, sucursal_id)
-
-    servicios_out = mappers_usuario.list_servicio_user_con_turnos_out(servicios, turnos)
-
-    return servicios_out
-
 @router.post("/sucursales/{sucursal_id}/favoritos", response_model=schemas_usuario.SucursalOut, status_code=201)
-def add_favorito(
+def agregar_sucursal_en_favoritos(
     sucursal_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
-):
+) -> schemas_usuario.SucursalOut:
 
-    sucursal = crud_usuario.add_favorito(db, current_user.id, sucursal_id)
+    sucursal = crud_usuario.agregar_sucursal_en_favoritos(db, current_user.id, sucursal_id)
     
     sucursal_out = mappers_usuario.sucursal_out(sucursal)
 
     return sucursal_out
 
 @router.delete("/sucursales/{sucursal_id}/favoritos", status_code=204)
-def delete_favorito(
+def eliminar_sucursal_de_favoritos(
     sucursal_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
-):
+) -> None:
 
-    crud_usuario.delete_favorito(db, current_user.id, sucursal_id)
+    crud_usuario.eliminar_sucursal_de_favoritos(db, current_user.id, sucursal_id)
 
 @router.get("/notificaciones", response_model=schemas_common.NotificacionesOut, status_code=200)
-def get_notificaciones_usuario(
+def obtener_notificaciones(
     leidas: bool | None = Query(default=None),
     id_ultimo: int | None = Query(default=None, ge=1),
     limit: int = Query(default=20, ge=1, le=100, alias="limite"),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
-):
+) -> schemas_common.NotificacionesOut:
 
     id_ultimo = id_ultimo if id_ultimo else 2**31 - 1 # valor grande si no viene
 
-    notificaciones, ultimo_cursor_id = crud_usuario.get_notificaciones(
+    notificaciones, ultimo_cursor_id = crud_common.obtener_notificaciones(
         db,
         current_user.id,
         leidas=leidas,
@@ -297,22 +301,22 @@ def get_notificaciones_usuario(
 
 # Cada 5 minutos el front pregunta por las notificaciones
 @router.get("/notificaciones/nuevas", response_model=list[schemas_common.NotificacionOut], status_code=200)
-def get_notificaciones_nuevas_usuario(
+def obtener_notificaciones_nuevas(
     id_posterior: int = Query(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
-):
+) -> list[schemas_common.NotificacionOut]:
 
-    notificaciones = crud_usuario.get_notificaciones_nuevas(db, current_user.id, id_posterior)
+    notificaciones = crud_common.obtener_notificaciones_nuevas(db, current_user.id, id_posterior)
 
     notificaciones_out = [mappers_common.notificacion_out(notif) for notif in notificaciones]
     
     return notificaciones_out
 
 @router.patch("/notificaciones/{notificacion_id}/leida", status_code=204)
-def update_notificacion_leida_usuario(
+def marcar_notificacion_como_leida(
     notificacion_id: int = Path(..., ge=1),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
-):
-    crud_usuario.update_notificacion_leida(db, current_user.id, notificacion_id)
+) -> None:
+    crud_usuario.marcar_notificacion_como_leida(db, current_user.id, notificacion_id)

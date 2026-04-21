@@ -3,7 +3,7 @@
 class DomainError(Exception):
     status_code = 400
     code = "DOMAIN_ERROR"
-    default_message = "Error de dominio"
+    default_message = "Ocurrió un error. Intentá de nuevo."
 
     def __init__(self, field: str | None = None, **metadata):
         self.field = field
@@ -17,6 +17,16 @@ class UserError(DomainError):
     code = "USER_ERROR"
     default_message = "Error de usuario"
 
+class UserInvalidCredentialsError(UserError):
+    """
+    Credenciales de login inválidas (email o contraseña incorrectos).
+    Usa DomainError (no AppSystemError) para que api.js no lo intercepte
+    como AUTH_ERROR y lo propague al catch block del frontend.
+    """
+    status_code = 401
+    code = "USER_INVALID_CREDENTIALS"
+    default_message = "Email o contraseña incorrectos"
+
 class UserNotFoundError(UserError):
     status_code = 404
     code = "USER_NOT_FOUND"
@@ -26,14 +36,33 @@ class UserEmailNotVerifiedError(UserError):
     status_code = 403
     code = "USER_EMAIL_NOT_VERIFIED"
     default_message = (
-        "Email de usuario registrado pero pendiente de verificación. "
-        "Por favor, confirma tu cuenta mediante el enlace enviado a tu correo para poder acceder a ella."
+        "Tu email no fue verificado aún."
+    )
+
+class UserAlreadyExistsButNotVerifiedError(UserError):
+    status_code = 409
+    code = "USER_ALREADY_EXISTS_BUT_NOT_VERIFIED"
+    default_message = (
+        "Ya existe una cuenta registrada con ese email que no fue verificado aún. "
+        "Revisá tu casilla de correo para confirmar tu cuenta."
+    )
+
+class UserVerificationEmailResentError(UserError):
+    status_code = 403
+    code = "USER_VERIFICATION_EMAIL_RESENT"
+    default_message = (
+        "Tu email no fue verificado aún. Revisá tu casilla de correo para confirmar tu cuenta."
     )
 
 class UserAlreadyExistsError(UserError):
     status_code = 409
     code = "USER_ALREADY_EXISTS"
     default_message = "Ya existe un usuario registrado con ese correo electrónico"
+
+class UserEmpresaMiembroAlreadyExistsError(UserError):
+    status_code = 409
+    code = "USER_EMPRESA_MIEMBRO_ALREADY_EXISTS"
+    default_message = "Ya poseés un rol en esta empresa"
 
 class UserBlockedBySucursalError(UserError):
     status_code = 403
@@ -56,7 +85,22 @@ class EmpresaEmailNotVerifiedError(EmpresaError):
     status_code = 403
     code = "EMPRESA_EMAIL_NOT_VERIFIED"
     default_message = (
-        "Email de empresa registrado pero pendiente de verificación. Por favor, confirma tu cuenta mediante el enlace enviado a tu correo para poder acceder a ella."
+        "El email de la empresa no fue verificado aún."
+    )
+
+class EmpresaAlreadyExistsButNotVerifiedError(EmpresaError):
+    status_code = 409
+    code = "EMPRESA_ALREADY_EXISTS_BUT_NOT_VERIFIED"
+    default_message = (
+        "Ya existe una empresa registrada con ese email que no fue verificado aún. "
+        "Revisá la casilla de correo para confirmar la empresa."
+    )
+
+class EmpresaVerificationEmailResentError(EmpresaError):
+    status_code = 403
+    code = "EMPRESA_VERIFICATION_EMAIL_RESENT"
+    default_message = (
+        "El email de la empresa no fue verificado aún. Revisá la casilla de correo para poder acceder al menú de la empresa."
     )
 
 class EmpresaAlreadyExistsError(EmpresaError):
@@ -67,7 +111,7 @@ class EmpresaAlreadyExistsError(EmpresaError):
 class EmpresaHasNoSucursalError(EmpresaError):
     status_code = 404
     code = "EMPRESA_HAS_NO_SUCURSAL"
-    default_message = "La empresa no tiene sucursal asociada"
+    default_message = "La empresa no tiene domicilio asociado"
 
 class EmpresaMiembroNotFoundError(EmpresaError):
     status_code = 404
@@ -77,24 +121,16 @@ class EmpresaMiembroNotFoundError(EmpresaError):
 class EmpresaMiembroAlreadyExistsError(EmpresaError):
     status_code = 409
     code = "EMPRESA_MIEMBRO_ALREADY_EXISTS"
-    default_message = "El usuario ya es miembro de la empresa"
-
-class EmpresaMiembroAlreadyExistsInAnySucursalError(EmpresaError):
-    status_code = 409
-    code = "EMPRESA_MIEMBRO_ALREADY_EXISTS_IN_ANY_SUCURSAL"
-    default_message = (
-        "No se puede agregar al usuario como miembro de la empresa con un rol global, "
-        "debido a que ya es miembro de la sucursal {nombre_sucursal}"
-    )
+    default_message = "No se puede invitar otra vez a un usuario que ya posee un rol en esta empresa"
 
 class EmpresaPropietarioOutError(EmpresaError):
     status_code = 409
     code = "EMPRESA_PROPIETARIO_OUT"
     default_message = "La empresa no puede quedar sin propietarios"
 
-class EmpresaProfesionalConTurnosConfimadosOutError(EmpresaError):
+class EmpresaProfesionalWithTurnosConfimadosOutError(EmpresaError):
     status_code = 409
-    code = "EMPRESA_PROFESIONAL_CON_TURNOS_CONFIRMADOS_OUT"
+    code = "EMPRESA_PROFESIONAL_WITH_TURNOS_CONFIRMADOS_OUT"
     default_message = "No se puede dejar una empresa que tiene turnos confirmados con vos como profesional"
 
 class EmpresaInvalidSelfRemovalError(EmpresaError):
@@ -130,6 +166,10 @@ class EmpresaMiembrosViewedByEmpleadoError(EmpresaPermissionDeniedError):
 class EmpresaRolUpdateError(EmpresaPermissionDeniedError):
     code = "EMPRESA_ROL_UPDATE"
     default_message = "Los roles de los miembros de una empresa solamente pueden ser modificados por miembros de rango superior"
+
+class EmpresaRolCannotAssignGerenteSucursalError(EmpresaPermissionDeniedError):
+    code = "EMPRESA_ROL_CANNOT_ASSIGN_GERENTE_SUCURSAL"
+    default_message = "No se puede asignar el rol de gerente de sucursal a una empresa con menos de dos sucursales."
 
 class EmpresaPersonalRolPropietarioUpdateError(EmpresaPermissionDeniedError):
     code = "EMPRESA_PERSONAL_ROL_PROPIETARIO_UPDATE"
@@ -180,10 +220,10 @@ class SucursalReservaExceptionDateServiceError(SucursalError):
     code = "SUCURSAL_RESERVA_EXCEPTION_DATE_SERVICE"
     default_message = "La reserva para este servicio en esta fecha se encuentra inhabilitada por: {motivo}"
 
-class SucursalClienteBlockedError(SucursalError):
-    status_code = 403
-    code = "SUCURSAL_CLIENTE_BLOCKED"
-    default_message = "Este cliente se encuentra bloqueado"
+class SucursalDeactivateWithOneSucursalInEmpresaError(SucursalError):
+    status_code = 409
+    code = "SUCURSAL_DEACTIVATE_WITH_ONE_SUCURSAL_IN_EMPRESA"
+    default_message = "Una empresa no puede quedar sin sucursales activas"
 
 class SucursalDeactivateWithTurnosConfirmadosError(SucursalError):
     status_code = 409
@@ -198,7 +238,7 @@ class SucursalMiembroNotFoundError(SucursalError):
 class SucursalMiembroAlreadyExistsError(SucursalError):
     status_code = 409
     code = "SUCURSAL_MIEMBRO_ALREADY_EXISTS"
-    default_message = "El usuario ya es miembro de la sucursal"
+    default_message = "El usuario ya pertenece a esta sucursal"
 
 class SucursalServiceError(SucursalError):
     status_code = 400
@@ -275,7 +315,7 @@ class SucursalExceptionDateServiceError(SucursalError):
 class SucursalExceptionDateServiceNotFoundError(SucursalExceptionDateServiceError):
     status_code = 404
     code = "SUCURSAL_EXCEPTION_DATE_SERVICE_NOT_FOUND"
-    default_message = "Bloqueo de fechas del servicio no encontrado"
+    default_message = "Bloqueo de fecha del servicio no encontrado"
 
 class SucursalExceptionDateServiceSuperpuestaError(SucursalExceptionDateServiceError):
     status_code = 409
@@ -290,13 +330,12 @@ class SucursalExceptionDateServiceCreateWithTurnosExistentesError(SucursalExcept
 class SucursalExceptionDateServiceUpdateWithTurnosExistentesError(SucursalExceptionDateServiceError):
     status_code = 409
     code = "SUCURSAL_EXCEPTION_DATE_SERVICE_UPDATE_WITH_TURNOS_CONFIRMADOS"
-    default_message = "No se puede modificar bloqueos de fechas de un servicio que poseen turnos confirmados"
     default_message = "No se puede extender el rango de fechas de vigencia para el actual bloqueo debido a que incluiría turnos confirmados"
 
-class SucursalProfesionalConTurnosConfirmadosOutError(SucursalError):
+class SucursalProfesionalWithTurnosConfirmadosOutError(SucursalError):
     status_code = 409
-    code = "SUCURSAL_PROFESIONAL_CON_TURNOS_CONFIRMADOS_OUT"
-    default_message = "No se puede dejar una sucursal que tiene turnos confirmados con vos como profesional"
+    code = "SUCURSAL_PROFESIONAL_WITH_TURNOS_CONFIRMADOS_OUT"
+    default_message = "No se puede abandonar una sucursal que tiene turnos confirmados con vos como profesional"
 
 class SucursalMiembroDeleteWithTurnosConfirmadosError(SucursalError):
     status_code = 409
@@ -309,7 +348,7 @@ class SucursalMiembroAddError(SucursalError):
 
 class SucursalInvalidSelfRemovalError(SucursalError):
     code = "SUCURSAL_INVALID_SELF_REMOVAL"
-    default_message = "No se puede abandonar como miembro a una sucursal desde este flujo"
+    default_message = "No se puede abandonar la sucursal desde este flujo"
 
 class SucursalPermissionDeniedError(SucursalError):
     status_code = 403
@@ -394,6 +433,16 @@ class ClienteDeactivateWithTurnosConfirmadosError(ClienteError):
     code = "CLIENTE_DEACTIVATE_WITH_TURNOS_CONFIRMADOS"
     default_message = "No se puede desactivar a un cliente que posee turnos confirmados"
 
+class ClienteBlockedError(ClienteError):
+    status_code = 403
+    code = "CLIENTE_BLOCKED"
+    default_message = "Este cliente se encuentra bloqueado"
+
+class ClienteAlreadyBlockedError(ClienteError):
+    status_code = 409
+    code = "CLIENTE_ALREADY_BLOCKED"
+    default_message = "Este cliente ya se encuentra bloqueado"
+
 # ------------------ Domain Rol Errores ------------------ #
 
 class RolInvalidError(DomainError):
@@ -441,7 +490,12 @@ class TurnoReservaDisponibilidadNoConfiguradaError(TurnoReservaError):
 class TurnoUserOverlappingAppointmentError(TurnoReservaError):
     status_code = 409
     code = "TURNO_USER_OVERLAPPING_APPOINTMENT"
-    default_message = "Tenés un turno pendiente que provoca superposición con el turno seleccionado. Por favor, revisar."
+    default_message = "Tenés un turno pendiente que provoca superposición con el turno seleccionado."
+
+class TurnoClienteOverlappingAppointmentError(TurnoReservaError):
+    status_code = 409
+    code = "TURNO_CLIENTE_OVERLAPPING_APPOINTMENT"
+    default_message = "El cliente tiene un turno pendiente que provoca superposición con el turno seleccionado."
 
 class TurnoProfesionalOverlappingAppointmentError(TurnoReservaError):
     status_code = 409
@@ -572,7 +626,7 @@ class LogoError(DomainError):
 
 class LogoTooLargeError(LogoError):
     code = "LOGO_TOO_LARGE"
-    default_message = "Logo demasiado grande (máximo {maximo} KB)"
+    default_message = "Logo demasiado grande (máximo {max_mb} MB)"
 
 class LogoInvalidError(LogoError):
     code = "LOGO_INVALID"
@@ -598,7 +652,7 @@ class AppSystemError(Exception):
 class AuthError(AppSystemError):
     status_code = 401
     code = "AUTH_ERROR"
-    default_message = "Credenciales inválidas"
+    default_message = "Error de autenticación"
 
 class AuthVerifyEmailInvalidExpiredTokenError(AuthError):
     status_code = 400

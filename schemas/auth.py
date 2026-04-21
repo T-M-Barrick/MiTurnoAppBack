@@ -1,8 +1,6 @@
-from datetime import datetime, timedelta, date, time
 from enum import Enum
-from typing import Self
 
-from pydantic import BaseModel, ConfigDict, EmailStr, SecretStr, Field, conint, constr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, SecretStr, Field, constr, field_validator
 
 from schemas.common import Telefono
 from core.security import validate_password

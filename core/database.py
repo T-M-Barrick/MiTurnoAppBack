@@ -3,7 +3,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 
 from core.config import DB_URL
 
-engine = create_engine(DB_URL)
+engine = create_engine(DB_URL, pool_pre_ping=True)
 
 def crear_extensiones(engine):
     with engine.connect() as conn:

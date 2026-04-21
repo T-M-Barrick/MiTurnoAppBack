@@ -1,17 +1,12 @@
-from datetime import datetime, timedelta
-
 from fastapi import UploadFile
-from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload, selectinload
 import cloudinary.uploader
 
-from crud.common import get_empresa, get_sucursal, verificar_rol_en_empresa, nuevo_estado_check
-from core import models, constantes, exceptions, auxiliares, mensajes, timezone
-from schemas import common as schemas_common
+from crud.common import get_empresa, get_sucursal, verificar_rol_en_empresa
+from core import models, exceptions, auxiliares
 from schemas import empresa as schemas_empresa
 
-# Crear empresa
-def create(db: Session, usuario_id: int, empresa: schemas_empresa.EmpresaCreate):
+def crear(db: Session, usuario_id: int, empresa: schemas_empresa.EmpresaCreate) -> tuple[models.Empresa, bool]:
 
     email_normalizado = models.normalizar_email(empresa.email)
 
@@ -19,7 +14,7 @@ def create(db: Session, usuario_id: int, empresa: schemas_empresa.EmpresaCreate)
     if empresa_existe and empresa_existe.email_verificado:
         raise exceptions.EmpresaAlreadyExistsError()
     if empresa_existe and not empresa_existe.email_verificado:
-        return empresa_existe
+        return empresa_existe, True
     
     try:
         # Crear el objeto de empresa
@@ -41,7 +36,6 @@ def create(db: Session, usuario_id: int, empresa: schemas_empresa.EmpresaCreate)
         # Crear el objeto de sucursal
         db_sucursal = models.Sucursal(
             empresa_id=db_empresa.id,
-            cuit=empresa.cuit,
             nombre=None,
             email=None,
             email_verificado=None,
@@ -80,21 +74,42 @@ def create(db: Session, usuario_id: int, empresa: schemas_empresa.EmpresaCreate)
         db.rollback()
         raise
 
-    return db_empresa
+    return db_empresa, False
 
-def asignar_rol_de_propietario(db: Session, usuario_id: int, empresa_id: int):
+def asignar_rol_de_propietario(db: Session, usuario_id: int, empresa_id: int) -> None:
     
     db_miembro = models.Miembro_Empresa(usuario_id=usuario_id, empresa_id=empresa_id, rol_id=1)
     db.add(db_miembro)
 
-def acceder(db: Session, empresa_id: int, usuario_id: int):
+def acceder(db: Session, empresa_id: int, usuario_id: int) -> tuple[models.Empresa, str]:
 
-    empresa = get_empresa(db, empresa_id)
+    empresa = (
+        db.query(models.Empresa)
+        .options(
+            selectinload(models.Empresa.sucursales) # cargar sucursales para telefonos
+                .selectinload(models.Sucursal.telefonos), # cargar teléfonos de cada sucursal
+            selectinload(models.Empresa.sucursales) # cargar sucursales otra vez para dirección
+                .joinedload(models.Sucursal.direccion), # cargar dirección de cada sucursal
+        )
+        .filter(models.Empresa.id == empresa_id).first()
+    )
+
+    if not empresa:
+        raise exceptions.EmpresaNotFoundError()
+
     current_user_rol = verificar_rol_en_empresa(db, usuario_id, empresa_id)
+
+    if not empresa.email_verificado and current_user_rol != 'PROPIETARIO':
+        raise exceptions.EmpresaEmailNotVerifiedError()
 
     return empresa, current_user_rol
 
-def update(db: Session, empresa_id: int, usuario_id: int, empresa_update: schemas_empresa.EmpresaUpdateIn):
+def modificar(
+    db: Session,
+    empresa_id: int,
+    usuario_id: int,
+    empresa_update: schemas_empresa.EmpresaUpdateIn,
+) -> tuple[models.Empresa, str]:
 
     empresa = get_empresa(db, empresa_id)
 
@@ -116,7 +131,7 @@ def update(db: Session, empresa_id: int, usuario_id: int, empresa_update: schema
 
     return empresa, current_user_rol
 
-def update_logo(db: Session, empresa_id: int, file: UploadFile | None):
+def modificar_logo(db: Session, empresa_id: int, usuario_id: int, file: UploadFile | None) -> str:
 
     empresa = get_empresa(db, empresa_id)
 
@@ -163,28 +178,11 @@ def update_logo(db: Session, empresa_id: int, file: UploadFile | None):
     
     return empresa.logo_url
 
-def get_sucursales_desactivadas(db: Session, empresa_id: int, usuario_id: int):
-
-    get_empresa(db, empresa_id)
-
-    verificar_rol_en_empresa(db, usuario_id, empresa_id)
-
-    sucursales = (
-        db.query(models.Sucursal)
-        .options(
-            selectinload(models.Sucursal.telefonos),
-            joinedload(models.Sucursal.direccion),
-        )
-        .filter(
-            models.Sucursal.empresa_id == empresa_id,
-            models.Sucursal.activa == False,
-        )
-        .all()
-    )
-
-    return sucursales
-
-def get_miembros(db: Session, empresa_id: int, usuario_solicitante_id: int):
+def obtener_miembros(
+    db: Session,
+    empresa_id: int,
+    usuario_solicitante_id: int,
+) -> tuple[list[models.Miembro_Empresa], list[models.Miembro_Sucursal]]:
 
     get_empresa(db, empresa_id)
 
@@ -207,7 +205,13 @@ def get_miembros(db: Session, empresa_id: int, usuario_solicitante_id: int):
 
     return miembros_empresa, miembros_sucursales
 
-def get_miembro_empresa(db: Session, empresa_id: int, usuario_miembro_id: int, lanzar_error: bool = True, bloquear: bool = False):
+def get_miembro_empresa(
+    db: Session,
+    empresa_id: int,
+    usuario_miembro_id: int,
+    lanzar_error: bool = True,
+    bloquear: bool = False,
+) -> models.Miembro_Empresa | None:
 
     query = db.query(models.Miembro_Empresa).options(
         joinedload(models.Miembro_Empresa.usuario),
@@ -227,7 +231,7 @@ def get_miembro_empresa(db: Session, empresa_id: int, usuario_miembro_id: int, l
 
     return miembro_empresa
 
-def contar_propietarios(db: Session, empresa_id: int):
+def contar_propietarios(db: Session, empresa_id: int) -> int:
 
     cant = db.query(models.Miembro_Empresa).filter(
         models.Miembro_Empresa.empresa_id == empresa_id,
@@ -237,7 +241,7 @@ def contar_propietarios(db: Session, empresa_id: int):
     return cant
 
 # El usuario de la empresa se borra de esta
-def leave_empresa(db: Session, empresa_id: int, usuario_id: int):
+def abandonar_empresa(db: Session, empresa_id: int, usuario_id: int) -> None:
 
     get_empresa(db, empresa_id)
 
@@ -305,7 +309,14 @@ def leave_empresa(db: Session, empresa_id: int, usuario_id: int):
 
 # Esta función es solo para que un propietario pueda modificar un rol de gerente de empresa a otro
 # o para que un propietario se degrade a gerente de empresa a sí mismo
-def update_rol(db: Session, empresa_id: int, usuario_solicitante_id: int, target_id: int, nuevo_rol: str, sucursal_id: int | None):
+def modificar_rol(
+    db: Session,
+    empresa_id: int,
+    usuario_solicitante_id: int,
+    target_id: int,
+    nuevo_rol: str,
+    sucursal_id: int | None,
+) -> models.Miembro_Empresa | list[models.Miembro_Sucursal]:
 
     get_empresa(db, empresa_id)
 
@@ -329,7 +340,7 @@ def update_rol(db: Session, empresa_id: int, usuario_solicitante_id: int, target
 
         miembro_empresa_target_rol_actual = miembro_empresa_target.rol.nombre
         
-        roles_sucursales = ['GERENTE_SUCURSAL', 'EMPLEADO']
+        roles_de_sucursal = ['GERENTE_SUCURSAL', 'EMPLEADO']
 
         if usuario_solicitante_id == target_id: # se modifica él mismo
 
@@ -341,7 +352,7 @@ def update_rol(db: Session, empresa_id: int, usuario_solicitante_id: int, target
             if propietarios <= 1 and nuevo_rol != 'PROPIETARIO':
                 raise exceptions.EmpresaPropietarioOutError()
 
-            if nuevo_rol in roles_sucursales:
+            if nuevo_rol in roles_de_sucursal:
                 raise exceptions.EmpresaPersonalRolPropietarioUpdateError()
             
             # Si se llegó hasta este punto del flujo, significa que el propietario se degrada a gerente de empresa
@@ -357,7 +368,7 @@ def update_rol(db: Session, empresa_id: int, usuario_solicitante_id: int, target
                 
             # Si se llegó hasta este punto del flujo, significa que un propietario modifica a un gerente de empresa a cualquier otro rol
     
-        if nuevo_rol in roles_sucursales: # signifca que un gerente de empresa pasa a ser gerente de sucursal o empleado
+        if nuevo_rol in roles_de_sucursal: # signifca que un gerente de empresa pasa a ser gerente de sucursal o empleado
 
             db_nuevo_rol_id = auxiliares.get_rol_id(db, nuevo_rol, 'SUCURSAL')
 
@@ -393,16 +404,22 @@ def update_rol(db: Session, empresa_id: int, usuario_solicitante_id: int, target
         db.rollback()
         raise
 
-def delete_miembro(db: Session, empresa_id: int, usuario_solicitante_id: int, target_id: int):
+def eliminar_miembro(db: Session, empresa_id: int, usuario_solicitante_id: int, target_id: int) -> None:
 
     get_empresa(db, empresa_id)
-
-    current_user_rol = verificar_rol_en_empresa(db, usuario_solicitante_id, empresa_id)
-
-    if usuario_solicitante_id == target_id:
-        raise exceptions.EmpresaInvalidSelfRemovalError()
     
     try:
+        empresa = (
+            db.query(models.Empresa)
+            .filter(models.Empresa.id == empresa_id)
+            .with_for_update()
+            .first()
+        )
+        current_user_rol = verificar_rol_en_empresa(db, usuario_solicitante_id, empresa_id)
+
+        if usuario_solicitante_id == target_id:
+            raise exceptions.EmpresaInvalidSelfRemovalError()
+
         # Traer el objeto de clase Miembro_Empresa que se eliminará
         miembro_empresa_target = get_miembro_empresa(db, empresa_id, target_id, bloquear=True)
 
@@ -453,81 +470,7 @@ def delete_miembro(db: Session, empresa_id: int, usuario_solicitante_id: int, ta
         db.rollback()
         raise
 
-'''
-Así se pediría, por ejemplo, en la solicitud HTTP:
-GET /empresas/5/notificaciones?leidas=false&id_ultimo=1234&limit=20
-'''
-def get_notificaciones(
-    db: Session,
-    empresa_id: int,
-    usuario_id: int,
-    leidas: bool | None = None,
-    id_ultimo: int | None = None,
-    limit: int = 20,
-):
-    '''
-    Devuelve las notificaciones de una empresa con paginación.
-    Van ordenadas de la más reciente a la más antigua (fecha descendente).
-
-    Parámetros:
-        leidas: si es None, devuelve tanto las leidas como las no leidas.
-        id_ultimo: id de la última notificación recibida (para la siguiente página).
-        limit: cantidad máxima de notificaciones a devolver (máx 100).
-    
-    Proceso:
-        Primera solicitud (en login): front no envía cursor → back devuelve primeros N registros + cursor del último.
-        Siguientes solicitudes: front envía cursor → back devuelve los siguientes N registros + cursor actualizado.
-        Última página: back devuelve lista vacía y cursor None → front deja de pedir más.
-    '''
-    get_empresa(db, empresa_id)
-
-    verificar_rol_en_empresa(db, usuario_id, empresa_id)
-
-    query = db.query(models.Notificacion).filter(
-        models.Notificacion.usuario_id == usuario_id,
-        models.Notificacion.empresa_id == empresa_id,
-        models.Notificacion.fecha_hora_minima_de_envio <= timezone.to_naive_utc(timezone.now_utc()),
-    )
-
-    # Aplicar paginación por cursor si se envió id_ultimo
-    if id_ultimo:
-        query = query.filter(
-            models.Notificacion.id < id_ultimo,
-        )
-    
-    # Filtro por leidas (IMPORTANTE usar is not None)
-    if leidas is not None:
-        query = query.filter(
-            models.Notificacion.leida == leidas,
-        )
-
-    query = query.order_by(models.Notificacion.id.desc())
-
-    limit = min(limit, 100) # no más de 100 por consulta
-
-    # notificaciones es una lista de objetos de clase Notificacion de SQLAlchemy
-    notificaciones = query.limit(limit).all()
-
-    ultimo_cursor_id = notificaciones[-1].id if notificaciones else None
-
-    return notificaciones, ultimo_cursor_id
-
-def get_notificaciones_nuevas(db: Session, empresa_id: int, usuario_id: int, id_posterior: int):
-
-    get_empresa(db, empresa_id)
-
-    verificar_rol_en_empresa(db, usuario_id, empresa_id)
-
-    notificaciones_nuevas = db.query(models.Notificacion).filter(
-        models.Notificacion.usuario_id == usuario_id,
-        models.Notificacion.empresa_id == empresa_id,
-        models.Notificacion.fecha_hora_minima_de_envio <= timezone.to_naive_utc(timezone.now_utc()),
-        models.Notificacion.id > id_posterior,
-    ).order_by(models.Notificacion.id.desc()).all()
-
-    return notificaciones_nuevas
-
-def update_notificacion_leida(db: Session, empresa_id: int, usuario_id: int, notificacion_id: int):
+def marcar_notificacion_como_leida(db: Session, empresa_id: int, usuario_id: int, notificacion_id: int) -> None:
 
     get_empresa(db, empresa_id)
 

@@ -3,9 +3,9 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from core.logger import logger
-from core import models, constantes, exceptions, timezone, autenticacion, auxiliares
+from core import models, constantes, exceptions, timezone, autenticacion
 
-def get_empresa(db: Session, empresa_id: int):
+def get_empresa(db: Session, empresa_id: int) -> models.Empresa:
 
     empresa = (
         db.query(models.Empresa)
@@ -27,9 +27,9 @@ def get_empresa(db: Session, empresa_id: int):
     if not any(sucursal.activa for sucursal in empresa.sucursales):
         raise exceptions.EmpresaHasNoSucursalError()
 
-    return empresa # empresa es un objeto de clase Empresa de SQLAlchemy
+    return empresa
 
-def get_sucursal(db: Session, sucursal_id: int, error_if_not_active: bool = True):
+def get_sucursal(db: Session, sucursal_id: int, error_if_not_active: bool = True) -> models.Sucursal:
 
     sucursal = (
         db.query(models.Sucursal)
@@ -47,10 +47,14 @@ def get_sucursal(db: Session, sucursal_id: int, error_if_not_active: bool = True
     if error_if_not_active and not sucursal.activa:
         raise exceptions.SucursalDeactivatedError()
 
-    return sucursal # sucursal es un objeto de clase Sucursal de SQLAlchemy
+    return sucursal
 
-def verificar_rol_en_empresa(db: Session, usuario_id: int,
-    empresa_id: int, error=exceptions.EmpresaAccessGlobalResourcesForbiddenError()):
+def verificar_rol_en_empresa(
+    db: Session,
+    usuario_id: int,
+    empresa_id: int,
+    error=exceptions.EmpresaAccessGlobalResourcesForbiddenError(),
+) -> str:
     """
     Verifica que un usuario pertenece a una empresa y devuelve el nombre de su rol.
     """
@@ -66,8 +70,12 @@ def verificar_rol_en_empresa(db: Session, usuario_id: int,
 
     return miembro.rol.nombre
 
-def verificar_rol_en_sucursal(db: Session, usuario_id: int,
-    sucursal_id: int, error=exceptions.SucursalAccessResourcesForbiddenError()):
+def verificar_rol_en_sucursal(
+    db: Session,
+    usuario_id: int,
+    sucursal_id: int,
+    error=exceptions.SucursalAccessResourcesForbiddenError(),
+) -> str:
     """
     Verifica que un usuario pertenece a una sucursal sin pertenecer a la empresa global y devuelve el nombre de su rol.
     """
@@ -83,8 +91,13 @@ def verificar_rol_en_sucursal(db: Session, usuario_id: int,
 
     return miembro.rol.nombre
 
-def verificar_rol_en_empresa_o_sucursal(db: Session, usuario_id: int,
-    empresa_id: int, sucursal_id: int, error=exceptions.EmpresaAccessResourcesForbiddenError()):
+def verificar_rol_en_empresa_o_sucursal(
+    db: Session,
+    usuario_id: int,
+    empresa_id: int,
+    sucursal_id: int,
+    error=exceptions.EmpresaAccessResourcesForbiddenError(),
+) -> str:
     """
     Verifica que un usuario pertenece a una sucursal (o tiene un rol más global en la empresa) y devuelve el nombre de su rol.
     """
@@ -113,7 +126,7 @@ def verificar_rol_en_empresa_o_sucursal(db: Session, usuario_id: int,
     return miembro.rol.nombre
 
 # Función para saber si una disponibilidad cubre un turno
-def disponibilidad_cubre_turno(d, fecha_hora):
+def disponibilidad_cubre_turno(d: models.Disponibilidad, fecha_hora: datetime) -> bool:
 
     dia, hora = timezone.extraer_dia_y_hora_en_local(fecha_hora)
 
@@ -138,7 +151,12 @@ def disponibilidad_cubre_turno(d, fecha_hora):
 
     return diferencia_minutos % d.intervalo == 0
 
-def nuevo_estado_check(db: Session, nuevo_estado: str, inicio_turno: datetime, duracion: int, cancelado_por_usuario: bool = True):
+def nuevo_estado_check(
+    nuevo_estado: str,
+    inicio_turno: datetime,
+    duracion: int,
+    cancelado_por_usuario: bool = True,
+) -> None:
 
     if cancelado_por_usuario:
         entidad1 = 'USUARIO'
@@ -147,7 +165,7 @@ def nuevo_estado_check(db: Session, nuevo_estado: str, inicio_turno: datetime, d
         entidad1 = 'EMPRESA'
         entidad2 = 'USUARIO'
     
-    inicio_turno = timezone.ensure_utc(turno.inicio_turno) # garantía defensiva
+    inicio_turno = timezone.ensure_utc(inicio_turno) # garantía defensiva
     ahora = timezone.now_utc()
     fin_turno = inicio_turno + timedelta(minutes=duracion)
 
@@ -165,7 +183,13 @@ def nuevo_estado_check(db: Session, nuevo_estado: str, inicio_turno: datetime, d
         if ahora < fin_turno:
             raise exceptions.TurnoNotFinishedError(field="estado_turno")
 
-def contar_turnos_superpuestos_servicio(db: Session, sucursal_id: int, servicio_id: int, fecha_hora: datetime, duracion: int):
+def contar_turnos_superpuestos_servicio(
+    db: Session,
+    sucursal_id: int,
+    servicio_id: int,
+    fecha_hora: datetime,
+    duracion: int,
+) -> list[models.Turno]:
     '''
     Al usar < y > en vez de <= y >=, no estoy contando los turnos pegados. Por ejemplo, si el turno nuevo comienza a las 15:00
     y hay uno que ya está sacado de 14:00 a 15:00, ese turno viejo no va a entrar en la lista y no se va a considerar superpuesto,
@@ -203,7 +227,11 @@ def contar_turnos_superpuestos_servicio(db: Session, sucursal_id: int, servicio_
 
     return turnos_actuales
 
-def tiene_turno_superpuesto(turnos: list[models.Turno], fecha_hora: datetime, duracion: int):
+def tiene_turno_superpuesto(
+    turnos: list[models.Turno],
+    fecha_hora: datetime,
+    duracion: int,
+) -> bool:
     '''
     Al usar < y > en vez de <= y >=, no estoy contando los turnos pegados. Por ejemplo, si el turno nuevo comienza a las 15:00
     y hay uno que ya está sacado de 14:00 a 15:00, ese turno viejo no va a entrar en la lista y no se va a considerar superpuesto,
@@ -234,7 +262,12 @@ def tiene_turno_superpuesto(turnos: list[models.Turno], fecha_hora: datetime, du
 
     return False
 
-def check_email_rate_limit(db: Session, email: str, accion: str, limite: int = 5):
+def check_email_rate_limit(
+    db: Session,
+    email: str,
+    accion: str,
+    limite: int = 5,
+) -> bool:
 
     ahora_utc = timezone.to_naive_utc(timezone.now_utc())
 
@@ -262,12 +295,10 @@ def check_email_rate_limit(db: Session, email: str, accion: str, limite: int = 5
             registro.inicio_ventana = ahora_utc
             db.commit()
             return True
-        
-
 
         if registro.conteo >= limite:
             logger.warning(
-                f"El correo {email_normalizado} alcanzó el límite de envíos de emails para {accion_nombre}"
+                f"El correo {email} alcanzó el límite de envíos de emails para {accion_nombre}"
             )
             return False
 
@@ -278,8 +309,10 @@ def check_email_rate_limit(db: Session, email: str, accion: str, limite: int = 5
 
     except Exception as e:
         db.rollback()
-        logger.error(
-            f"Error en función check_email_rate_limit para el correo {email_normalizado} para {accion_nombre}: {e}"
+        logger.exception(
+            "Error en función check_email_rate_limit para el correo=%s para accion=%s",
+            email,
+            accion_nombre,
         )
         # Si ponemos True, el usuario no quedará el registro en la tabla LimiteEmail y, por consiguiente, el usuario recibirá el mail:
         # Ventaja: el usuario no se ve perjudicado por un error en base de datos o back
@@ -289,10 +322,14 @@ def check_email_rate_limit(db: Session, email: str, accion: str, limite: int = 5
         # Desventaja: el usuario se ve perjudicado por un error en base de datos o back y no puede recibir su mail
         return False
 
-def verificacion_email(db: Session, token: str, usuario: bool = True):
+def verificar_email(
+    db: Session,
+    token: str,
+    usuario: bool = True,
+) -> None:
 
     payload = autenticacion.verify_email_token(token)
-    entidad_id = payload["sub"]
+    entidad_id = int(payload["sub"])
 
     if usuario:
         entidad = db.query(models.Usuario).get(entidad_id)
@@ -302,7 +339,9 @@ def verificacion_email(db: Session, token: str, usuario: bool = True):
         entidad = db.query(models.Empresa).get(entidad_id)
         if not entidad:
             raise exceptions.EmpresaNotFoundError()
-        if not entidad.sucursal:
+        
+        sucursal = db.query(models.Sucursal).filter(models.Sucursal.empresa_id == entidad_id).first()
+        if not sucursal:
             raise exceptions.EmpresaHasNoSucursalError()
 
     if entidad.email_verificado:
@@ -312,13 +351,127 @@ def verificacion_email(db: Session, token: str, usuario: bool = True):
         entidad.email_verificado = True
         entidad.fecha_hora_alta = timezone.to_naive_utc(timezone.now_utc())
         if not usuario:
-            entidad.sucursal.activa = True
+            sucursal.activa = True
         db.commit()
     except Exception:
         db.rollback()
         raise
 
-def crear_extra_data_notificacion(**metadata):
+'''
+Así se pediría, por ejemplo, en la solicitud HTTP:
+GET /usuarios/notificaciones?leidas=false&id_ultimo=1234&limit=20
+GET /empresas/5/notificaciones?leidas=false&id_ultimo=1234&limit=20
+GET /sucursales/5/notificaciones?leidas=false&id_ultimo=1234&limit=20
+'''
+def obtener_notificaciones(
+    db: Session,
+    usuario_id: int,
+    empresa_id: int | None = None,
+    sucursal_id: int | None = None,
+    leidas: bool | None = None,
+    id_ultimo: int | None = None,
+    limit: int = 20,
+) -> tuple[list[models.Notificacion], int | None]:
+    '''
+    Devuelve las notificaciones de un usuario (puede ser como cliente, como miembro de empresa o como miembro de sucursal) con paginación.
+    Van ordenadas de la más reciente a la más antigua (fecha descendente).
+
+    Parámetros:
+        leidas: si es None, devuelve tanto las leidas como las no leidas.
+        id_ultimo: id de la última notificación recibida (para la siguiente página).
+        limit: cantidad máxima de notificaciones a devolver (máx 100).
+    
+    Proceso:
+        Primera solicitud (en login): front no envía cursor → back devuelve primeros N registros + cursor del último.
+        Siguientes solicitudes: front envía cursor → back devuelve los siguientes N registros + cursor actualizado.
+        Última página: back devuelve lista vacía y cursor None → front deja de pedir más.
+    '''
+
+    if empresa_id and sucursal_id:
+        raise ValueError("No se puede enviar empresa_id y sucursal_id juntos para la función obtener_notificaciones")
+
+    query = db.query(models.Notificacion).filter(
+        models.Notificacion.usuario_id == usuario_id,
+        models.Notificacion.fecha_hora_minima_de_envio <= timezone.to_naive_utc(timezone.now_utc()),
+    )
+
+    if empresa_id:
+        get_empresa(db, empresa_id)
+        verificar_rol_en_empresa(db, usuario_id, empresa_id)
+
+        query = query.filter(models.Notificacion.empresa_id == empresa_id)
+
+    elif sucursal_id:
+        get_sucursal(db, sucursal_id)
+        verificar_rol_en_sucursal(db, usuario_id, sucursal_id)
+
+        query = query.filter(models.Notificacion.sucursal_id == sucursal_id)
+
+    else: # como cliente
+        query = query.filter(
+            models.Notificacion.empresa_id.is_(None),
+            models.Notificacion.sucursal_id.is_(None),
+        )
+
+    # Aplicar paginación por cursor si se envió id_ultimo
+    if id_ultimo:
+        query = query.filter(models.Notificacion.id < id_ultimo)
+    
+    # Filtro por leidas (IMPORTANTE usar is not None)
+    if leidas is not None:
+        query = query.filter(models.Notificacion.leida == leidas)
+
+    query = query.order_by(models.Notificacion.id.desc())
+
+    limit = min(limit, 100) # no más de 100 por consulta
+
+    # notificaciones es una lista de objetos de clase Notificacion de SQLAlchemy
+    notificaciones = query.limit(limit).all()
+
+    ultimo_cursor_id = notificaciones[-1].id if notificaciones else None
+
+    return notificaciones, ultimo_cursor_id
+
+def obtener_notificaciones_nuevas(
+    db: Session,
+    usuario_id: int,
+    id_posterior: int,
+    empresa_id: int | None = None,
+    sucursal_id: int | None = None,
+) -> list[models.Notificacion]:
+
+    if empresa_id and sucursal_id:
+        raise ValueError("No se puede enviar empresa_id y sucursal_id juntos para la función obtener_notificaciones_nuevas")
+
+    query = db.query(models.Notificacion).filter(
+        models.Notificacion.usuario_id == usuario_id,
+        models.Notificacion.fecha_hora_minima_de_envio <= timezone.to_naive_utc(timezone.now_utc()),
+        models.Notificacion.id > id_posterior,
+    )
+
+    if empresa_id:
+        get_empresa(db, empresa_id)
+        verificar_rol_en_empresa(db, usuario_id, empresa_id)
+
+        query = query.filter(models.Notificacion.empresa_id == empresa_id)
+
+    elif sucursal_id:
+        get_sucursal(db, sucursal_id)
+        verificar_rol_en_sucursal(db, usuario_id, sucursal_id)
+
+        query = query.filter(models.Notificacion.sucursal_id == sucursal_id)
+
+    else: # como cliente
+        query = query.filter(
+            models.Notificacion.empresa_id.is_(None),
+            models.Notificacion.sucursal_id.is_(None),
+        )
+    
+    notificaciones_nuevas = query.order_by(models.Notificacion.id.desc()).all()
+
+    return notificaciones_nuevas
+
+def crear_extra_data_notificacion(**metadata) -> dict:
     return metadata
 
 def guardar_notificacion(
@@ -329,7 +482,7 @@ def guardar_notificacion(
     empresa_id: int | None = None,
     sucursal_id: int | None = None,
     fecha_hora_minima_de_envio: datetime | None = None,
-):
+) -> None:
 
     if tipo not in constantes.NOTIFICACIONES:
         raise ValueError(f"Tipo de notificación inválido: {tipo}")

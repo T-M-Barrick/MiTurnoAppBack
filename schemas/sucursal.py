@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, date, time
-from typing import Self
+from typing import Self, Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, conint, condecimal, constr, conlist, field_validator, model_validator
 
@@ -9,20 +9,17 @@ from schemas.common import (
     DireccionCreate,
     DireccionOut,
     DireccionUpdateIn,
-    ServicioOut,
-    DisponibilidadServicio,
-    ExcepcionFechaServicioOut,
     MiembroOut,
     NotificacionesOut,
     EstadoTurno,
     RolEmpresa,
     RolSucursal,
 )
-from core.timezone import validate_aware_utc
+from core.timezone import validate_aware_utc, utc_to_local, now_utc
 
 class SucursalCreate(BaseModel):
     empresa_id: conint(ge=1)
-    nombre: constr(min_length=1, max_length=50)
+    nombre: constr(min_length=1, max_length=40)
     reserva_publica_habilitada: bool
     telefonos: list[Telefono]
     direccion: DireccionCreate # obligatorio al crear una sucursal
@@ -31,41 +28,42 @@ class SucursalCreate(BaseModel):
 
 class SucursalHomeOut(BaseModel): # Esto es solo para los gerentes de sucursal y empleados
     id: conint(ge=1)
-    nombre_empresa: constr(min_length=1, max_length=50)
-    nombre_sucursal: constr(min_length=1, max_length=50) | None
+    empresa_id: conint(ge=1)
+    nombre_empresa: constr(min_length=1, max_length=40)
+    nombre_sucursal: constr(min_length=1, max_length=40) | None
     logo_url: constr(min_length=1, max_length=255) | None
     notificaciones: NotificacionesOut
     rol: RolSucursal
+    cantidad_sucursales: conint(ge=1)
 
     model_config = ConfigDict(from_attributes=True)
 
 class SucursalPerfilOut(BaseModel): # Esto es solo para los gerentes de sucursal y empleados
     id: conint(ge=1)
     cuit: constr(pattern=r"^[0-9]{11}$")
-    nombre_empresa: constr(min_length=1, max_length=50)
-    nombre_sucursal: constr(min_length=1, max_length=50) | None
+    nombre_empresa: constr(min_length=1, max_length=40)
+    nombre_sucursal: constr(min_length=1, max_length=40) | None
     email_empresa: EmailStr = Field(..., max_length=255)
     email_sucursal: EmailStr | None = Field(..., max_length=255)
     reserva_publica_habilitada: bool
-    rubro: constr(min_length=1, max_length=100) | None
-    rubro2: constr(min_length=1, max_length=100) | None
+    rubro: constr(min_length=1, max_length=50) | None
+    rubro2: constr(min_length=1, max_length=50) | None
     calificacion: condecimal(ge=0, le=10, max_digits=4, decimal_places=2) | None
     telefonos: list[TelefonoConID]
     direccion: DireccionOut
     logo_url: constr(min_length=1, max_length=255) | None
-    rol: RolSucursal
 
     model_config = ConfigDict(from_attributes=True)
 
 class SucursalUpdateIn(BaseModel):
-    nombre: constr(min_length=1, max_length=50) | None = None
+    nombre: constr(min_length=1, max_length=40) | None = None
     reserva_publica_habilitada: bool | None = None
     telefonos: list[TelefonoConID] | None = None # [[id, numero], ...]. Si la lista viene vacía, se borran todos los teléfonos
     direccion: DireccionUpdateIn | None = None
 
     @model_validator(mode="before")
     @classmethod
-    def validar_campos_not_null(cls, values):
+    def validar_campos_not_null(cls, values: Any) -> Any:
         """
         Rechaza cualquier campo que sea explícitamente enviado como None, exceptuando los campos en la lista de campos permitidos.
         Los campos que no se envíen simplemente se ignoran.
@@ -90,8 +88,8 @@ class SucursalUpdateIn(BaseModel):
 class ClienteOut(BaseModel):
     id: conint(ge=1)
     dni: constr(pattern=r"^[0-9]{6,8}$")
-    apellido: constr(min_length=1, max_length=50)
-    nombre: constr(min_length=1, max_length=50)
+    apellido: constr(min_length=1, max_length=30)
+    nombre: constr(min_length=1, max_length=30)
     email: EmailStr = Field(..., max_length=255)
     telefono: constr(pattern=r"^\+[1-9][0-9]{5,28}$") | None
     telefono2: constr(pattern=r"^\+[1-9][0-9]{5,28}$") | None
@@ -115,8 +113,8 @@ class ClientesSucursalOut(BaseModel):
 
 class ClienteCreate(BaseModel):
     dni: constr(pattern=r"^[0-9]{6,8}$")
-    apellido: constr(min_length=1, max_length=50)
-    nombre: constr(min_length=1, max_length=50)
+    apellido: constr(min_length=1, max_length=30)
+    nombre: constr(min_length=1, max_length=30)
     email: EmailStr = Field(..., max_length=255)
     telefono: constr(pattern=r"^\+[1-9][0-9]{5,28}$") | None
     telefono2: constr(pattern=r"^\+[1-9][0-9]{5,28}$") | None
@@ -132,8 +130,8 @@ class ClienteCreate(BaseModel):
 
 class ClienteUpdateIn(BaseModel):
     dni: constr(pattern=r"^[0-9]{6,8}$") | None = None
-    apellido: constr(min_length=1, max_length=50) | None = None
-    nombre: constr(min_length=1, max_length=50) | None = None
+    apellido: constr(min_length=1, max_length=30) | None = None
+    nombre: constr(min_length=1, max_length=30) | None = None
     email: EmailStr | None = Field(default=None, max_length=255)
     telefono: constr(pattern=r"^\+[1-9][0-9]{5,28}$") | None = None
     telefono2: constr(pattern=r"^\+[1-9][0-9]{5,28}$") | None = None
@@ -147,7 +145,7 @@ class ClienteUpdateIn(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def validar_campos_not_null(cls, values):
+    def validar_campos_not_null(cls, values: Any) -> Any:
         """
         Rechaza cualquier campo que sea explícitamente enviado como None, exceptuando los campos en la lista de campos permitidos.
         Los campos que no se envíen simplemente se ignoran.
@@ -172,18 +170,18 @@ class ClienteUpdateIn(BaseModel):
 class TurnoSucursalOut(BaseModel):
     id: conint(ge=1)
     cliente_dni: constr(pattern=r"^[0-9]{6,8}$")
-    cliente_apellido: constr(min_length=1, max_length=50)
-    cliente_nombre: constr(min_length=1, max_length=50)
+    cliente_apellido: constr(min_length=1, max_length=30)
+    cliente_nombre: constr(min_length=1, max_length=30)
     cliente_email: EmailStr = Field(..., max_length=255)
     fecha_hora: datetime # debe salir como aware UTC
     servicio_id: conint(ge=1)
-    nombre_de_servicio: constr(min_length=1, max_length=100)
+    nombre_de_servicio: constr(min_length=1, max_length=50)
     duracion: conint(gt=0, multiple_of=5)
     precio: condecimal(ge=0, max_digits=10, decimal_places=2)
     aclaracion_de_servicio: constr(min_length=1, max_length=255) | None
     profesional_dni: constr(pattern=r"^[0-9]{6,8}$") | None
-    profesional_apellido: constr(min_length=1, max_length=50) | None
-    profesional_nombre: constr(min_length=1, max_length=50) | None
+    profesional_apellido: constr(min_length=1, max_length=30) | None
+    profesional_nombre: constr(min_length=1, max_length=30) | None
     created_at: datetime
     estado_turno: EstadoTurno
 
@@ -208,23 +206,29 @@ class ReservaTurnoSucursalIn(BaseModel):
 
 class TurnoEstadoUpdateIn(BaseModel):
     estado_turno: EstadoTurno
-    observacion: constr(min_length=1, max_length=255) | None # por ejemplo: el motivo de cancelación
+    motivo: constr(min_length=1, max_length=255) | None # por ejemplo: el motivo de cancelación
+
+    model_config = ConfigDict(from_attributes=True)
+
+class TurnosSucursalDeleteIn(BaseModel):
+    turnos: conlist(conint(ge=1), min_length=1) # IDs de turnos a eliminar
 
     model_config = ConfigDict(from_attributes=True)
 
 class TurnoHistorialSucursal(BaseModel):
+    id: conint(ge=1)
     cliente_dni: constr(pattern=r"^[0-9]{6,8}$")
-    cliente_apellido: constr(min_length=1, max_length=50)
-    cliente_nombre: constr(min_length=1, max_length=50)
+    cliente_apellido: constr(min_length=1, max_length=30)
+    cliente_nombre: constr(min_length=1, max_length=30)
     cliente_email: EmailStr = Field(..., max_length=255)
     fecha_hora: datetime # debe salir como aware UTC
-    nombre_de_servicio: constr(min_length=1, max_length=100)
+    nombre_de_servicio: constr(min_length=1, max_length=50)
     duracion: conint(gt=0, multiple_of=5)
     precio: condecimal(ge=0, max_digits=10, decimal_places=2)
     aclaracion_de_servicio: constr(min_length=1, max_length=255) | None
     profesional_dni: constr(pattern=r"^[0-9]{6,8}$") | None
-    profesional_apellido: constr(min_length=1, max_length=50) | None
-    profesional_nombre: constr(min_length=1, max_length=50) | None
+    profesional_apellido: constr(min_length=1, max_length=30) | None
+    profesional_nombre: constr(min_length=1, max_length=30) | None
     created_at: datetime
     estado_turno: EstadoTurno
 
@@ -247,40 +251,149 @@ class HistorialSucursalOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-class ServicioSucursalOut(BaseModel):
+class DisponibilidadServicio(BaseModel):
+    dia: conint(ge=0, le=6) # 0 = lunes, 6 = domingo
+    hora_inicio: time
+    hora_fin: time
+    intervalo: conint(gt=0, multiple_of=5)
+    cant_turnos_max: conint(ge=0)
+
+    @field_validator("hora_inicio", "hora_fin", mode="after")
+    @classmethod
+    def validar_hora_5min(cls, value: time) -> time:
+        if value.minute % 5 != 0:
+            raise ValueError("La hora debe ser múltiplo de 5 minutos")
+        return value
+    
+    @model_validator(mode="after")
+    def validar_consistencia(self) -> Self:
+        inicio = self.hora_inicio
+        fin = self.hora_fin
+        intervalo = self.intervalo
+
+        if fin < inicio:
+            raise ValueError("La hora final debe ser mayor o igual que la hora de inicio")
+
+        # convertir a minutos
+        inicio_min = inicio.hour * 60 + inicio.minute
+        fin_min = fin.hour * 60 + fin.minute
+        duracion_total = fin_min - inicio_min
+
+        if duracion_total % intervalo != 0:
+            raise ValueError("La hora final debe coincidir exactamente con múltiplos del intervalo desde la hora de inicio")
+
+        return self
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class ServicioOut(BaseModel):
     id: conint(ge=1)
-    nombre: constr(min_length=1, max_length=100)
+    servicio_base_id: conint(ge=1)
+    duracion: conint(gt=0, multiple_of=5)
+    precio: condecimal(ge=0, max_digits=10, decimal_places=2)
+    vigente_desde: date
+    vigente_hasta: date | None
+    created_at: datetime
+    modify_at: datetime | None
+    disponibilidades: list[DisponibilidadServicio]
+
+    @field_validator("created_at", "modify_at", mode="after")
+    @classmethod
+    def validar_fecha_hora_utc(cls, value: datetime | None) -> datetime | None:
+        return validate_aware_utc(value) if value else None
+
+    @model_validator(mode="after")
+    def validar_consistencia(self) -> Self:
+        inicio = self.vigente_desde
+        fin = self.vigente_hasta
+
+        if inicio is not None and fin is not None:
+            if fin < inicio:
+                raise ValueError("La fecha final de la vigencia del servicio debe ser mayor o igual que la fecha de inicio")
+
+        return self
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ExcepcionFechaServicioOut(BaseModel):
+    id: conint(ge=1)
+    fecha_inicio: date
+    fecha_fin: date
+    motivo: constr(min_length=1, max_length=255) | None
+    
+    @model_validator(mode="after")
+    def validar_consistencia(self) -> Self:
+        inicio = self.fecha_inicio
+        fin = self.fecha_fin
+
+        if fin < inicio:
+            raise ValueError("La fecha final de una excepción de servicio debe ser mayor o igual que la fecha de inicio")
+
+        return self
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class ServicioBaseOut(BaseModel):
+    id: conint(ge=1)
+    nombre: constr(min_length=1, max_length=50)
     aclaracion: constr(min_length=1, max_length=255) | None
     profesional_id: conint(ge=1) | None
     profesional_dni: constr(pattern=r"^[0-9]{6,8}$") | None
-    profesional_apellido: constr(min_length=1, max_length=50) | None
-    profesional_nombre: constr(min_length=1, max_length=50) | None
-    minutos_min_reserva: conint(ge=0)
-    dias_max_reserva: conint(ge=0) | None
-    cancelacion_limitada: bool
+    profesional_apellido: constr(min_length=1, max_length=30) | None
+    profesional_nombre: constr(min_length=1, max_length=30) | None
+    minutos_minimos_anticipacion_reserva: conint(ge=0)
+    limite_dias_reserva: conint(ge=0) | None
+    cancelacion_turno_limitada: bool
     servicios: conlist(ServicioOut, min_length=1)
     excepciones_fechas: list[ExcepcionFechaServicioOut]
 
     model_config = ConfigDict(from_attributes=True)
 
+class TurnoActualDelServicio(BaseModel):
+    id: conint(ge=1)
+    fecha_hora: datetime # debe salir como aware UTC
+    duracion: conint(gt=0, multiple_of=5) # minutos
+
+    @field_validator("fecha_hora", mode="after")
+    @classmethod
+    def validar_fecha_hora_utc(cls, value: datetime) -> datetime:
+        return validate_aware_utc(value)
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ServicioBaseParaReservaOut(BaseModel):
+    id: conint(ge=1)
+    nombre: constr(min_length=1, max_length=50)
+    aclaracion: constr(min_length=1, max_length=255) | None
+    profesional_id: conint(ge=1) | None
+    profesional_dni: constr(pattern=r"^[0-9]{6,8}$") | None
+    profesional_apellido: constr(min_length=1, max_length=30) | None
+    profesional_nombre: constr(min_length=1, max_length=30) | None
+    limite_dias_reserva: conint(ge=0) | None
+    servicios: conlist(ServicioOut, min_length=1)
+    turnos_actuales: list[TurnoActualDelServicio]
+    excepciones_fechas: list[ExcepcionFechaServicioOut]
+
+    model_config = ConfigDict(from_attributes=True)
+
 class ServicioBaseCreate(BaseModel):
-    nombre: constr(min_length=1, max_length=100)
+    nombre: constr(min_length=1, max_length=50)
     duracion: conint(gt=0, multiple_of=5)
     precio: condecimal(ge=0, max_digits=10, decimal_places=2)
     aclaracion: constr(min_length=1, max_length=255) | None
     profesional_id: conint(ge=1) | None
     vigente_desde: date
     vigente_hasta: date | None
-    minutos_min_reserva: conint(ge=0)
-    dias_max_reserva: conint(ge=0) | None
-    cancelacion_limitada: bool
+    minutos_minimos_anticipacion_reserva: conint(ge=0)
+    limite_dias_reserva: conint(ge=0) | None
+    cancelacion_turno_limitada: bool
     disponibilidades: list[DisponibilidadServicio] # Lista de disponibilidades por días
 
     @field_validator("vigente_desde", mode="after")
     @classmethod
     def validar_vigente_desde_mayor_a_hoy(cls, value: date) -> date:
 
-        fecha_hoy_local = timezone.utc_to_local(timezone.now_utc()).date()
+        fecha_hoy_local = utc_to_local(now_utc()).date()
         fecha_tomorrow_local = fecha_hoy_local + timedelta(days=1)
 
         if value < fecha_tomorrow_local:
@@ -308,15 +421,15 @@ class ServicioBaseUpdateIn(BaseModel):
 
     Todo campo que se envíe como None (y el validator lo permita), se cambia en la base a NULL.
     '''
-    nombre: constr(min_length=1, max_length=100) | None = None
+    nombre: constr(min_length=1, max_length=50) | None = None
     aclaracion: constr(min_length=1, max_length=255) | None = None
-    minutos_min_reserva: conint(ge=0) | None = None
-    dias_max_reserva: conint(ge=0) | None = None
-    cancelacion_limitada: bool | None = None
+    minutos_minimos_anticipacion_reserva: conint(ge=0) | None = None
+    limite_dias_reserva: conint(ge=0) | None = None
+    cancelacion_turno_limitada: bool | None = None
     
     @model_validator(mode="before")
     @classmethod
-    def validar_campos_not_null(cls, values):
+    def validar_campos_not_null(cls, values: Any) -> Any:
         """
         Rechaza cualquier campo que sea explícitamente enviado como None, exceptuando los campos en la lista de campos permitidos.
         Los campos que no se envíen simplemente se ignoran.
@@ -328,7 +441,7 @@ class ServicioBaseUpdateIn(BaseModel):
         if not values:
             raise ValueError("Debe enviarse al menos un campo en el schema ServicioBaseUpdateIn")
 
-        campos_permitidos_null = ["aclaracion", "dias_max_reserva"]
+        campos_permitidos_null = ["aclaracion", "limite_dias_reserva"]
 
         for field, value in values.items():
             if field in cls.model_fields and field not in campos_permitidos_null and value is None:
@@ -354,7 +467,7 @@ class ServicioCreate(BaseModel):
     @classmethod
     def validar_vigente_desde_mayor_a_hoy(cls, value: date) -> date:
 
-        fecha_hoy_local = timezone.utc_to_local(timezone.now_utc()).date()
+        fecha_hoy_local = utc_to_local(now_utc()).date()
         fecha_tomorrow_local = fecha_hoy_local + timedelta(days=1)
 
         if value < fecha_tomorrow_local:
@@ -384,7 +497,7 @@ class ServicioUpdateIn(BaseModel):
     Si el campo disponibilidades no se envía, entonces no se modifica, pero en caso de que sí se envíe y sea
     una lista vacía, entonces se interpreta como que quiere borrar todas las disponibilidades
     para con ese servicio y se procede a borrarlas a todas (que el programa identifique si envió disponibilidades
-    o lo envió como lista vacía se hace en la función crud_sucursal.update_servicio_version en la parte que dice
+    o lo envió como lista vacía se hace en la función crud_sucursal.modificar_servicio_version en la parte que dice
     update_data = servicio_update.model_dump(exclude_unset=True)).
     Si hay alguna modificación en las disponibilidades, deberá enviarse todas las disponibilidades, no solo las que
     se modificaron.
@@ -397,7 +510,7 @@ class ServicioUpdateIn(BaseModel):
     
     @model_validator(mode="before")
     @classmethod
-    def validar_campos_not_null(cls, values):
+    def validar_campos_not_null(cls, values: Any) -> Any:
         """
         Rechaza cualquier campo que sea explícitamente enviado como None, exceptuando los campos en la lista de campos permitidos.
         Los campos que no se envíen simplemente se ignoran.
@@ -443,7 +556,7 @@ class ExcepcionFechaServicioUpdateIn(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def validar_campos_not_null(cls, values):
+    def validar_campos_not_null(cls, values: Any) -> Any:
         """
         Rechaza cualquier campo que sea explícitamente enviado como None, exceptuando los campos en la lista de campos permitidos.
         Los campos que no se envíen simplemente se ignoran.
@@ -495,8 +608,8 @@ class BlockClienteIn(BaseModel):
 class BlockClienteOut(BaseModel):
     cliente: ClienteOut
     miembro_dni: constr(pattern=r"^[0-9]{6,8}$")
-    miembro_apellido: constr(min_length=1, max_length=50)
-    miembro_nombre: constr(min_length=1, max_length=50)
+    miembro_apellido: constr(min_length=1, max_length=30)
+    miembro_nombre: constr(min_length=1, max_length=30)
     miembro_rol: RolEmpresa | RolSucursal | None # rol dentro de la empresa o sucursal
     motivo: constr(min_length=1, max_length=255) | None
     created_at: datetime # debe salir como aware UTC

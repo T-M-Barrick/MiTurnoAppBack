@@ -1,5 +1,3 @@
-from datetime import timedelta
-
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -7,107 +5,102 @@ from crud.common import (
     get_empresa,
     get_sucursal,
     verificar_rol_en_empresa,
-    verificar_rol_en_sucursal,
     verificar_rol_en_empresa_o_sucursal,
     crear_extra_data_notificacion,
     guardar_notificacion,
 )
-from core import models, constantes, exceptions, config, autenticacion, auxiliares,  mensajes
+from core import models, exceptions, config, auxiliares
 
-def invitar_empleado(db: Session, empresa_id: int,
-    sucursal_id: int | None, current_user_id: int, usuario_email: str, invitacion_rol: str):
+def invitar_empleado(
+    db: Session,
+    empresa_id: int,
+    sucursal_id: int | None,
+    current_user_id: int,
+    usuario_email: str,
+    invitacion_rol: str,
+) -> tuple[models.Usuario | None, models.Empresa | models.Sucursal | None, int | None]:
 
-    empresa = get_empresa(db, empresa_id)
+    get_empresa(db, empresa_id)
 
-    if sucursal_id:
-        sucursal = get_sucursal(db, sucursal_id)
+    try:
+        empresa = (
+            db.query(models.Empresa)
+            .options(selectinload(models.Empresa.sucursales))
+            .filter(models.Empresa.id == empresa_id)
+            .with_for_update()
+            .first()
+        )
 
-        if sucursal.empresa_id != empresa_id:
-            raise exceptions.SucursalNotFoundError()
+        cantidad_sucursales = len([suc for suc in empresa.sucursales if suc.activa])
 
-        current_user_rol = verificar_rol_en_empresa_o_sucursal(db, current_user_id, sucursal.empresa.id, sucursal_id)
+        if invitacion_rol == 'GERENTE_SUCURSAL' and cantidad_sucursales == 1:
+            raise exceptions.EmpresaRolCannotAssignGerenteSucursalError()
 
-        if current_user_rol == 'EMPLEADO':
-            raise exceptions.SucursalRolAssignedByEmpleadoError()
+        if sucursal_id:
+            sucursal = get_sucursal(db, sucursal_id)
 
-        if current_user_rol == 'GERENTE_SUCURSAL' and invitacion_rol == 'GERENTE_SUCURSAL':
-            raise exceptions.SucursalRolAssignedByGerenteError()
+            if sucursal.empresa_id != empresa_id:
+                raise exceptions.SucursalNotFoundError()
 
-    else:
-        current_user_rol = verificar_rol_en_empresa(db, current_user_id, empresa_id)
+            current_user_rol = verificar_rol_en_empresa_o_sucursal(db, current_user_id, sucursal.empresa_id, sucursal_id)
 
-        if current_user_rol != 'PROPIETARIO':
-            raise exceptions.EmpresaRolNotAssignedByPropietarioError()
-    
-    # Buscar usuario por email
-    email_normalizado = models.normalizar_email(usuario_email)
-    usuario = db.query(models.Usuario).filter(models.Usuario.email_normalizado == email_normalizado).first()
+            if current_user_rol == 'EMPLEADO':
+                raise exceptions.SucursalRolAssignedByEmpleadoError()
 
-    if not usuario:
-        return None, None
-    
-    if not usuario.email_verificado:
-        return None, None
-    
-    # Verificar si ya es miembro de la empresa (rol global)
-    es_miembro = db.query(models.Miembro_Empresa.id).filter_by(
-        usuario_id=usuario.id,
-        empresa_id=empresa_id,
-    ).first()
+            if current_user_rol == 'GERENTE_SUCURSAL' and invitacion_rol == 'GERENTE_SUCURSAL':
+                raise exceptions.SucursalRolAssignedByGerenteError()
 
-    if es_miembro:
-        raise exceptions.EmpresaMiembroAlreadyExistsError()
-    
-    if sucursal_id:
-        # Verificar si ya es miembro de la sucursal
-        es_miembro = db.query(models.Miembro_Sucursal.id).filter_by(
+        else:
+            current_user_rol = verificar_rol_en_empresa(db, current_user_id, empresa_id)
+
+            if current_user_rol != 'PROPIETARIO':
+                raise exceptions.EmpresaRolNotAssignedByPropietarioError()
+        
+        # Buscar usuario por email
+        email_normalizado = models.normalizar_email(usuario_email)
+        usuario = db.query(models.Usuario).filter(models.Usuario.email_normalizado == email_normalizado).first()
+
+        if not usuario:
+            db.commit()
+            return None, None, None
+
+        if not usuario.email_verificado:
+            db.commit()
+            return None, None, None
+        
+        # Verificar si ya es miembro de la empresa (rol global)
+        es_miembro_en_empresa = db.query(models.Miembro_Empresa.id).filter_by(
             usuario_id=usuario.id,
-            sucursal_id=sucursal_id
+            empresa_id=empresa_id,
         ).first()
 
-        if es_miembro:
-            raise exceptions.SucursalMiembroAlreadyExistsError()
-
-    else:
         # Verificar si ya es miembro de alguna sucursal de la empresa
-        es_miembro = (
+        es_miembro_de_alguna_sucursal = (
             db.query(models.Miembro_Sucursal)
             .join(models.Sucursal)
             .filter(
                 models.Miembro_Sucursal.usuario_id == usuario.id,
-                models.Sucursal.empresa_id == empresa_id
+                models.Sucursal.empresa_id == empresa_id,
             )
             .first()
         )
 
-        if es_miembro:
-            sucursal = next((s for s in empresa.sucursales if s.id == es_miembro.sucursal_id), None)
-            if sucursal:
-                raise exceptions.EmpresaMiembroAlreadyExistsInAnySucursalError(nombre_sucursal=sucursal.nombre)
+        if es_miembro_en_empresa or es_miembro_de_alguna_sucursal:
+            raise exceptions.EmpresaMiembroAlreadyExistsError()
 
-    if sucursal_id:
-        return usuario, sucursal
-    else:
-        return usuario, empresa
-
-    '''
-    # Volver a poner si no se logra lo del mail
-    ###################################
-    db_invitacion_rol = auxiliares.get_rol_id(db, invitacion_rol, 'EMPRESA')
-
-    try:
-        nuevo_miembro = models.Miembro_Empresa(usuario_id=usuario.id, empresa_id=empresa_id, rol=db_invitacion_rol)
-        db.add(nuevo_miembro)
         db.commit()
     except Exception:
         db.rollback()
         raise
-    ###################################
-    '''
+
+    if sucursal_id:
+        return usuario, sucursal, cantidad_sucursales
+    else:
+        return usuario, empresa, cantidad_sucursales
 
 # Las notificaciones siempre se envian a miembros con roles iguales o inferiores al rol que se desea asignar
 # (con excepciones de los empleados que no reciben notificación)
-def aceptar_invitacion(db: Session, token: str):
+def aceptar_invitacion(db: Session, token: str) -> tuple[str, str, int]:
 
     try:
         payload = jwt.decode(token, config.SECRET_KEY, algorithms=[config.ALGORITHM])
@@ -118,14 +111,27 @@ def aceptar_invitacion(db: Session, token: str):
     except JWTError as e:
         raise exceptions.InvitationTokenInvalidExpiredError()
     
-    empresa = get_empresa(db, empresa_id)
-    
-    # Buscar usuario por ID
-    usuario = db.query(models.Usuario).filter_by(id=usuario_id).first()
-    if not usuario:
-        raise exceptions.UserNotFoundError()
+    get_empresa(db, empresa_id)
     
     try:
+        empresa = (
+            db.query(models.Empresa)
+            .options(selectinload(models.Empresa.sucursales))
+            .filter(models.Empresa.id == empresa_id)
+            .with_for_update()
+            .first()
+        )
+
+        cantidad_sucursales = len([suc for suc in empresa.sucursales if suc.activa])
+
+        if rol == 'GERENTE_SUCURSAL' and cantidad_sucursales == 1:
+            raise exceptions.EmpresaRolCannotAssignGerenteSucursalError()
+        
+        # Buscar usuario por ID
+        usuario = db.query(models.Usuario).filter_by(id=usuario_id).first()
+        if not usuario:
+            raise exceptions.UserNotFoundError()
+    
         miembros_de_la_empresa = db.query(models.Miembro_Empresa).options(
             joinedload(models.Miembro_Empresa.rol),
         ).filter(
@@ -133,9 +139,21 @@ def aceptar_invitacion(db: Session, token: str):
         ).order_by(models.Miembro_Empresa.id.asc()).with_for_update(of=models.Miembro_Empresa).all()
         
         # Verificar si ya es miembro de la empresa (rol global)
-        es_miembro = next((m_e for m_e in miembros_de_la_empresa if m_e.usuario_id == usuario_id), None)
-        if es_miembro:
-            return empresa.nombre, es_miembro.rol.nombre
+        es_miembro_en_empresa = next((m_e for m_e in miembros_de_la_empresa if m_e.usuario_id == usuario_id), None)
+
+        # Verificar si ya es miembro de alguna sucursal de la empresa
+        es_miembro_de_alguna_sucursal = (
+            db.query(models.Miembro_Sucursal)
+            .join(models.Sucursal)
+            .filter(
+                models.Miembro_Sucursal.usuario_id == usuario.id,
+                models.Sucursal.empresa_id == empresa_id,
+            )
+            .first()
+        )
+
+        if es_miembro_en_empresa or es_miembro_de_alguna_sucursal:
+            raise exceptions.UserEmpresaMiembroAlreadyExistsError()
         
         if sucursal_id:
             sucursal = get_sucursal(db, sucursal_id)
@@ -149,33 +167,8 @@ def aceptar_invitacion(db: Session, token: str):
                 models.Miembro_Sucursal.sucursal_id == sucursal_id,
             ).order_by(models.Miembro_Sucursal.id.asc()).with_for_update(of=models.Miembro_Sucursal).all()
 
-            # Verificar si ya es miembro de la sucursal
-            es_miembro = next((m_s for m_s in miembros_de_la_sucursal if m_s.usuario_id == usuario_id), None)
-            if es_miembro:
-                return auxiliares.nombre_empresa(sucursal.empresa.nombre, sucursal.nombre), es_miembro.rol.nombre
-
-        else:
-            # Verificar si ya es miembro de alguna sucursal de la empresa
-            es_miembro = (
-                db.query(models.Miembro_Sucursal)
-                .join(models.Sucursal)
-                .options(joinedload(models.Miembro_Sucursal.rol))
-                .filter(
-                    models.Miembro_Sucursal.usuario_id == usuario_id,
-                    models.Sucursal.empresa_id == empresa_id
-                )
-                .first()
-            )
-
-            if es_miembro:
-                sucursal = next((s for s in empresa.sucursales if s.id == es_miembro.sucursal_id), None)
-                if sucursal:
-                    return auxiliares.nombre_empresa(sucursal.empresa.nombre, sucursal.nombre), es_miembro.rol.nombre
-
-        if sucursal_id:
-
-            roles_sucursales = ['GERENTE_SUCURSAL', 'EMPLEADO']
-            if rol not in roles_sucursales:
+            roles_de_sucursal = ['GERENTE_SUCURSAL', 'EMPLEADO']
+            if rol not in roles_de_sucursal:
                 raise exceptions.InvitationTokenInvalidExpiredError()
             
             db_rol_id = auxiliares.get_rol_id(db, rol, 'SUCURSAL')
@@ -186,7 +179,7 @@ def aceptar_invitacion(db: Session, token: str):
                 usuario_id=usuario_id,
                 usuario_apellido=usuario.apellido,
                 usuario_nombre=usuario.nombre,
-                nombre_sucursal=sucursal.nombre,
+                sucursal_id=sucursal.id,
                 rol=rol,
             )
             for m_e in miembros_de_la_empresa:
@@ -209,8 +202,8 @@ def aceptar_invitacion(db: Session, token: str):
         
         else:
 
-            roles_empresas = ['PROPIETARIO', 'GERENTE_EMPRESA']
-            if rol not in roles_empresas:
+            roles_de_empresa = ['PROPIETARIO', 'GERENTE_EMPRESA']
+            if rol not in roles_de_empresa:
                 raise exceptions.InvitationTokenInvalidExpiredError()
 
             db_rol_id = auxiliares.get_rol_id(db, rol, 'EMPRESA')
@@ -233,6 +226,6 @@ def aceptar_invitacion(db: Session, token: str):
         raise
     
     if sucursal_id:
-        return auxiliares.nombre_empresa(sucursal.empresa.nombre, sucursal.nombre), rol
+        return auxiliares.nombre_empresa(sucursal.empresa.nombre, sucursal.nombre), rol, cantidad_sucursales
     else:
-        return empresa.nombre, rol
+        return empresa.nombre, rol, cantidad_sucursales

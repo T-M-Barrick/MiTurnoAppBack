@@ -1,12 +1,10 @@
 import random
-from datetime import date, time, datetime, timedelta
+from datetime import datetime, timedelta
 
-from jose import jwt
 from sqlalchemy import or_, and_, func
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from crud.common import (
-    get_empresa,
     get_sucursal,
     disponibilidad_cubre_turno,
     nuevo_estado_check,
@@ -15,12 +13,10 @@ from crud.common import (
     crear_extra_data_notificacion,
     guardar_notificacion,
 )
-from core import models, constantes, exceptions, autenticacion, auxiliares, mensajes, timezone
-from schemas import common as schemas_common
+from core import models, exceptions, autenticacion, auxiliares, mensajes, timezone
 from schemas import usuario as schemas_usuario
 
-# Crear usuario
-def create_usuario(db: Session, user: schemas_usuario.UserCreate):
+def crear_usuario(db: Session, user: schemas_usuario.UserCreate) -> tuple[models.Usuario, bool]:
 
     email_normalizado = models.normalizar_email(user.email)
 
@@ -29,7 +25,7 @@ def create_usuario(db: Session, user: schemas_usuario.UserCreate):
     if usuario_existe and usuario_existe.email_verificado:
         raise exceptions.UserAlreadyExistsError()
     if usuario_existe and not usuario_existe.email_verificado:
-        return usuario_existe
+        return usuario_existe, True
 
     password = user.password.get_secret_value()
 
@@ -42,7 +38,7 @@ def create_usuario(db: Session, user: schemas_usuario.UserCreate):
             email=user.email,
             email_verificado=False,
             hashed_password=autenticacion.get_password_hash(password),
-            recordatorio_minutos_antes=user.recordatorio,
+            recordatorio_minutos_antes=user.recordatorio_minutos_antes,
             fecha_hora_alta=None,
         )
 
@@ -75,9 +71,9 @@ def create_usuario(db: Session, user: schemas_usuario.UserCreate):
         db.rollback()
         raise
     
-    return db_user
+    return db_user, False
 
-def get_turnos(db: Session, usuario_id: int):
+def obtener_turnos(db: Session, usuario_id: int) -> list[models.Turno]:
     '''
     Devuelve todos los turnos de un usuario que aparecen en la tabla turno: los futuros y los pasados que el usuario no eliminó.
     Van ordenados del más antiguo al más lejano (fecha descendente).
@@ -99,10 +95,10 @@ def get_turnos(db: Session, usuario_id: int):
     # Los que tienen fecha más antigua aparecerán más arriba que los de fecha más futura en el tiempo
     turnos = query.order_by(models.Turno.fecha_hora.asc()).all()
 
-    return turnos # turnos es una lista de objetos de clase Turno de SQLAlchemy
+    return turnos
 
 # Actualizar usuario
-def update(db: Session, user: models.Usuario, user_update: schemas_usuario.UserUpdateIn):
+def modificar(db: Session, user: models.Usuario, user_update: schemas_usuario.UserUpdateIn) -> models.Usuario:
     '''
     1. Actualiza los datos simples del usuario (dni, nombre, etc.).
 
@@ -114,7 +110,13 @@ def update(db: Session, user: models.Usuario, user_update: schemas_usuario.UserU
 
         .Si un teléfono que estaba en BD no aparece en la lista → lo elimina.
 
-    3. Actualiza direcciones con DireccionUpdateIn.
+    3. Actualiza direcciones usando DireccionUpdateIn:
+
+        .Si id es 0 → crea nueva.
+
+        .Si existe → actualiza sus datos.
+
+        .Si una dirección que estaba en BD no aparece en la lista → la elimina.
     '''
 
     try:
@@ -210,9 +212,9 @@ def update(db: Session, user: models.Usuario, user_update: schemas_usuario.UserU
             joinedload(models.Usuario.direcciones))
         .filter(models.Usuario.id == user.id).first()
     )
-    return user # user es un objeto de clase Usuario de SQLAlchemy
+    return user
 
-def get_turno(db: Session, turno_id: int):
+def get_turno(db: Session, turno_id: int) -> models.Turno | None:
 
     turno = db.query(models.Turno).options(
         joinedload(models.Turno.profesional),
@@ -226,7 +228,7 @@ def get_turno(db: Session, turno_id: int):
     
     return turno
 
-def mapear_error_en_reserva_turno(errores_en_servicios, clase_error):
+def mapear_error_en_reserva_turno(errores_en_servicios, clase_error) -> None:
     '''
     Lo malo que tiene esta función es que si hay algo de metada en las excepciones y hay
     dos o más excepciones de igual clase pero distinta metada, devolverá la primera
@@ -236,7 +238,11 @@ def mapear_error_en_reserva_turno(errores_en_servicios, clase_error):
         if isinstance(error, clase_error):
             raise error
 
-def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuario.ReservaTurnoOpcionesUserIn):
+def reservar_turno(
+    db: Session,
+    usuario: models.Usuario,
+    reserva: schemas_usuario.ReservaTurnoOpcionesUserIn,
+) -> models.Turno:
 
     usuario_id = usuario.id
     recordatorio_minutos_antes = usuario.recordatorio_minutos_antes
@@ -345,17 +351,17 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
             continue
         
         # Validar límite máximo de días
-        if servicio.servicio_base.dias_max_reserva is not None:
-            validar_turno_dias_max = timezone.validar_turno_dias_max(fecha_hora, servicio.servicio_base.dias_max_reserva)
+        if servicio.servicio_base.limite_dias_reserva is not None:
+            validar_turno_dias_max = timezone.validar_turno_dias_max(fecha_hora, servicio.servicio_base.limite_dias_reserva)
             if not validar_turno_dias_max:
-                errores_en_servicios.append(exceptions.TurnoReservaFueraDeRangoError(dias_max=servicio.servicio_base.dias_max_reserva))
+                errores_en_servicios.append(exceptions.TurnoReservaFueraDeRangoError(dias_max=servicio.servicio_base.limite_dias_reserva))
                 continue
 
         # Validar anticipación para reserva de turno
-        validar_turno_horario = timezone.validar_turno_horario(fecha_hora, servicio.servicio_base.minutos_min_reserva)
+        validar_turno_horario = timezone.validar_turno_horario(fecha_hora, servicio.servicio_base.minutos_minimos_anticipacion_reserva)
         if not validar_turno_horario:
             errores_en_servicios.append(
-                exceptions.TurnoReservaAnticipacionInvalidError(minutos_minimos=servicio.servicio_base.minutos_min_reserva)
+                exceptions.TurnoReservaAnticipacionInvalidError(minutos_minimos=servicio.servicio_base.minutos_minimos_anticipacion_reserva)
             )
             continue
         
@@ -415,7 +421,7 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
         # no hayan ciclos de bloqueos con ningún otra función que sí bloquea antes a miembros que a disponibilidades
 
         miembros_de_la_empresa = db.query(models.Miembro_Empresa).filter(
-            models.Miembro_Empresa.empresa_id == sucursal.empresa.id,
+            models.Miembro_Empresa.empresa_id == sucursal.empresa_id,
         ).order_by(models.Miembro_Empresa.id.asc()).with_for_update().all()
 
         miembros_de_la_sucursal = db.query(models.Miembro_Sucursal).options(
@@ -555,7 +561,7 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
             turno_id=turno.id,
             cliente_apellido=cliente.apellido,
             cliente_nombre=cliente.nombre,
-            nombre_sucursal=sucursal.nombre,
+            sucursal_id=sucursal.id,
             cuando=cuando,
         )
         for m_e in miembros_de_la_empresa:
@@ -588,7 +594,12 @@ def reservar_turno(db: Session, usuario: models.Usuario, reserva: schemas_usuari
 
     return turno
 
-def update_estado_turno(db: Session, usuario: models.Usuario, turno_id: int, turno_update: schemas_usuario.TurnoEstadoUpdateIn):
+def modificar_estado_turno(
+    db: Session,
+    usuario: models.Usuario,
+    turno_id: int,
+    turno_update: schemas_usuario.TurnoEstadoUpdateIn,
+) -> models.Turno:
 
     turno = db.query(models.Turno).filter_by(
         id=turno_id,
@@ -608,12 +619,13 @@ def update_estado_turno(db: Session, usuario: models.Usuario, turno_id: int, tur
     try:
         # Busco el id que corresponde al estado nuevo_estado de la tabla Estado_Turno para luego ponerlo en el turno
         estado_obj = db.query(models.Estado_Turno).filter(
-            models.Estado_Turno.estado.ilike(nuevo_estado)).first()
+            models.Estado_Turno.estado.ilike(nuevo_estado),
+        ).first()
         
         if not estado_obj:
             raise ValueError("Error al buscar el ID del estado del turno en la tabla estado_turno de la base de datos")
 
-        nuevo_estado_check(db, nuevo_estado, inicio_turno, turno.duracion)
+        nuevo_estado_check(nuevo_estado, inicio_turno, turno.duracion)
 
         if turno.estado_turno_usuario_id != 1: # si no es CONFIRMADO el estado
             raise exceptions.TurnoUpdateStateImmutableError()
@@ -623,6 +635,16 @@ def update_estado_turno(db: Session, usuario: models.Usuario, turno_id: int, tur
         if nuevo_estado == 'CANCELADO_POR_USUARIO':
             turno.estado_turno_sucursal_id = estado_obj.id
             email_cancelacion = True
+
+            miembros_de_la_empresa = db.query(models.Miembro_Empresa).filter(
+                models.Miembro_Empresa.empresa_id == sucursal.empresa_id,
+            ).order_by(models.Miembro_Empresa.id.asc()).with_for_update().all()
+
+            miembros_de_la_sucursal = db.query(models.Miembro_Sucursal).options(
+                joinedload(models.Miembro_Sucursal.rol),
+            ).filter(
+                models.Miembro_Sucursal.sucursal_id == sucursal.id,
+            ).order_by(models.Miembro_Sucursal.id.asc()).with_for_update(of=models.Miembro_Sucursal).all()
 
             db.query(models.Notificacion).filter(
                 models.Notificacion.usuario_id == usuario.id,
@@ -635,7 +657,7 @@ def update_estado_turno(db: Session, usuario: models.Usuario, turno_id: int, tur
             cliente_email_normalizado = models.normalizar_email(usuario.email)
 
             cliente = db.query(models.Cliente).filter_by(
-                sucursal_id=sucursal_id,
+                sucursal_id=sucursal.id,
                 email_normalizado=cliente_email_normalizado,
             ).with_for_update().first()
 
@@ -647,7 +669,7 @@ def update_estado_turno(db: Session, usuario: models.Usuario, turno_id: int, tur
                 turno_id=turno_id,
                 cliente_apellido=cliente_apellido,
                 cliente_nombre=cliente_nombre,
-                nombre_sucursal=sucursal.nombre,
+                sucursal_id=sucursal.id,
                 cuando=cuando,
             )
             for m_e in miembros_de_la_empresa:
@@ -680,7 +702,7 @@ def update_estado_turno(db: Session, usuario: models.Usuario, turno_id: int, tur
             promedio = (
                 db.query(func.avg(models.Calificacion.valor))
                 .join(models.Turno)
-                .filter(models.Turno.sucursal_id == turno.sucursal_id)
+                .filter(models.Turno.sucursal_id == sucursal.id)
                 .scalar()
             )
 
@@ -698,10 +720,11 @@ def update_estado_turno(db: Session, usuario: models.Usuario, turno_id: int, tur
         try:
             mensajes.send_turno_cancelado_email(
                 to_email=sucursal.empresa.email,
-                us_emp_nombre=f"{cliente_apellido}, {cliente_nombre}",
-                fecha_hora=inicio_turno,
+                cliente=False,
+                nombre=f"{cliente_apellido}, {cliente_nombre}",
+                fecha_hora_utc=inicio_turno,
                 servicio=turno.nombre_de_servicio,
-                motivo=turno_update.observacion,
+                motivo=turno_update.motivo,
             )
         except exceptions.EmailSendFailedError:
             pass
@@ -710,10 +733,11 @@ def update_estado_turno(db: Session, usuario: models.Usuario, turno_id: int, tur
             if sucursal.email:
                 mensajes.send_turno_cancelado_email(
                     to_email=sucursal.email,
-                    us_emp_nombre=f"{cliente_apellido}, {cliente_nombre}",
-                    fecha_hora=inicio_turno,
+                    cliente=False,
+                    nombre=f"{cliente_apellido}, {cliente_nombre}",
+                    fecha_hora_utc=inicio_turno,
                     servicio=turno.nombre_de_servicio,
-                    motivo=turno_update.observacion,
+                    motivo=turno_update.motivo,
                 )
         except exceptions.EmailSendFailedError:
             pass
@@ -723,7 +747,12 @@ def update_estado_turno(db: Session, usuario: models.Usuario, turno_id: int, tur
 
     return turno
 
-def update_recordatorio_turno(db: Session, usuario_id: int, turno_id: int, nuevo_recordatorio: int | None):
+def modificar_recordatorio_turno(
+    db: Session,
+    usuario_id: int,
+    turno_id: int,
+    nuevo_recordatorio: int | None,
+) -> models.Turno:
 
     turno = db.query(models.Turno).filter_by(
         id=turno_id,
@@ -752,7 +781,7 @@ def update_recordatorio_turno(db: Session, usuario_id: int, turno_id: int, nuevo
     return turno
 
 # Pasa un turno a historial
-def delete_turno(db: Session, usuario_id: int, turno_id: int, lista_estados: list):
+def eliminar_turno(db: Session, usuario_id: int, turno_id: int, lista_estados: list) -> None:
 
     turno = db.query(models.Turno).options(
         joinedload(models.Turno.estado_turno_usuario),
@@ -781,7 +810,7 @@ def delete_turno(db: Session, usuario_id: int, turno_id: int, lista_estados: lis
         db.rollback()
         raise
 
-def get_estados_turnos(db: Session, usuario_id: int):
+def obtener_estados_turnos(db: Session, usuario_id: int) -> list[models.Turno]:
 
     turnos = db.query(models.Turno).options(
         joinedload(models.Turno.estado_turno_usuario),
@@ -797,8 +826,13 @@ def get_estados_turnos(db: Session, usuario_id: int):
 Así se pediría, por ejemplo, en la solicitud HTTP:
 GET /usuarios/turnos/historial?fecha_hora_ultima=2025-10-10T12:00:00Z&id_ultimo=1234&limit=50
 '''
-def get_historial(db: Session, usuario_id: int,
-    fecha_hora_ultima: datetime | None = None, id_ultimo: int | None = None, limit: int = 50):
+def obtener_historial(
+    db: Session,
+    usuario_id: int,
+    fecha_hora_ultima: datetime | None = None,
+    id_ultimo: int | None = None,
+    limit: int = 50,
+) -> tuple[list[models.Turno], tuple[datetime | None, int | None]]:
     '''
     Devuelve el historial de turnos de un usuario con paginación.
     Van ordenados del más reciente al más antiguo (fecha descendente).
@@ -859,7 +893,7 @@ def get_historial(db: Session, usuario_id: int,
 Así se pediría, por ejemplo, en la solicitud HTTP:
 GET /usuarios/sucursales?busqueda=peluq&lat=-35.456231$lng=-45.569842
 '''
-def get_sucursales(db: Session, search: str, lat: float, lng: float):
+def obtener_sucursales(db: Session, search: str, lat: float, lng: float) -> list[models.Sucursal]:
 
     search = auxiliares.quitar_acentos(search.lower())
     palabra = f"%{search}%"
@@ -887,72 +921,20 @@ def get_sucursales(db: Session, search: str, lat: float, lng: float):
     radios = [2, 5, 10, 20, 50] # kilómetros
     resultados = []
 
-    for r in radios:
-        for s in sucursales:
-            if (not s.direccion) or (s.direccion.lat is None) or (s.direccion.lng is None):
-                continue
+    for s in sucursales:
+        if (not s.direccion) or (s.direccion.lat is None) or (s.direccion.lng is None):
+            continue
 
-            dist = auxiliares.distancia_km(lat, lng, s.direccion.lat, s.direccion.lng)
+        dist = auxiliares.distancia_km(lat, lng, s.direccion.lat, s.direccion.lng)
 
+        for r in radios:
             if dist <= r:
-                if s not in resultados:
-                    resultados.append(s)
+                resultados.append(s)
+                break
 
-    return resultados # resultados es una lista de objetos de clase Sucursal de SQLAlchemy
+    return resultados
 
-def get_servicios_de_sucursal(db: Session, usuario_email: str, sucursal_id: int):
-
-    sucursal = get_sucursal(db, sucursal_id)
-
-    nombre_sucursal = auxiliares.nombre_empresa(sucursal.empresa.nombre, sucursal.nombre)
-
-    if not sucursal.reserva_publica_habilitada:
-        raise exceptions.SucursalReservaPublicaInhabilitadaError(nombre=nombre_sucursal)
-    
-    cliente_email_normalizado = models.normalizar_email(usuario_email)
-    
-    bloqueo = (
-        db.query(models.BloqueoSucursal)
-        .join(models.Cliente)
-        .filter(
-            models.BloqueoSucursal.sucursal_id == sucursal_id,
-            models.Cliente.email_normalizado == cliente_email_normalizado,
-        )
-        .first()
-    )
-
-    if bloqueo:
-        raise exceptions.UserBlockedBySucursalError(nombre_empresa=nombre_completo_sucursal)
-
-    servicios_base = (
-        db.query(models.ServicioBase)
-        .options(
-            joinedload(models.ServicioBase.profesional),
-            selectinload(models.ServicioBase.servicios).selectinload(models.Servicio.disponibilidades),
-            selectinload(models.ServicioBase.excepciones_fechas),
-        )
-        .filter(models.Servicio.sucursal_id == sucursal_id)
-        .all()
-    )
-
-    if not servicios_base:
-        return ([], [])
-
-    # Devuelvo los turnos de la sucursal que tiene como confirmados    
-    turnos = (
-        db.query(models.Turno)
-        .filter(
-            models.Turno.sucursal_id == sucursal_id,
-            models.Turno.eliminado_por_sucursal == False,
-            models.Turno.estado_turno_usuario_id == 1,
-            models.Turno.estado_turno_sucursal_id == 1,
-        )
-        .all()
-    )
-    
-    return servicios_base, turnos
-
-def add_favorito(db: Session, usuario_id: int, sucursal_id: int):
+def agregar_sucursal_en_favoritos(db: Session, usuario_id: int, sucursal_id: int) -> models.Sucursal:
 
     sucursal = get_sucursal(db, sucursal_id)
 
@@ -973,7 +955,7 @@ def add_favorito(db: Session, usuario_id: int, sucursal_id: int):
 
     return sucursal
 
-def delete_favorito(db: Session, usuario_id: int, sucursal_id: int):
+def eliminar_sucursal_de_favoritos(db: Session, usuario_id: int, sucursal_id: int) -> None:
 
     fav = db.query(models.Favorito).filter(
         models.Favorito.usuario_id == usuario_id,
@@ -988,64 +970,7 @@ def delete_favorito(db: Session, usuario_id: int, sucursal_id: int):
         db.rollback()
         raise
 
-'''
-Así se pediría, por ejemplo, en la solicitud HTTP:
-GET /usuarios/notificaciones?leidas=false&id_ultimo=1234&limit=20
-'''
-def get_notificaciones(db: Session, usuario_id: int, leidas: bool | None = None, id_ultimo: int | None = None, limit: int = 20):
-    '''
-    Devuelve las notificaciones de un usuario con paginación.
-    Van ordenadas de la más reciente a la más antigua (fecha descendente).
-
-    Parámetros:
-        leidas: si es None, devuelve tanto las leidas como las no leidas.
-        id_ultimo: id de la última notificación recibida (para la siguiente página).
-        limit: cantidad máxima de notificaciones a devolver (máx 100).
-    
-    Proceso:
-        Primera solicitud (en login): front no envía cursor → back devuelve primeros N registros + cursor del último.
-        Siguientes solicitudes: front envía cursor → back devuelve los siguientes N registros + cursor actualizado.
-        Última página: back devuelve lista vacía y cursor None → front deja de pedir más.
-    '''
-    query = db.query(models.Notificacion).filter(
-        models.Notificacion.usuario_id == usuario_id,
-        models.Notificacion.fecha_hora_minima_de_envio <= timezone.to_naive_utc(timezone.now_utc()),
-    )
-
-    # Aplicar paginación por cursor si se envió id_ultimo
-    if id_ultimo:
-        query = query.filter(
-            models.Notificacion.id < id_ultimo,
-        )
-    
-    # Filtro por leidas (IMPORTANTE usar is not None)
-    if leidas is not None:
-        query = query.filter(
-            models.Notificacion.leida == leidas,
-        )
-
-    query = query.order_by(models.Notificacion.id.desc())
-
-    limit = min(limit, 100) # no más de 100 por consulta
-
-    # notificaciones es una lista de objetos de clase Notificacion de SQLAlchemy
-    notificaciones = query.limit(limit).all()
-
-    ultimo_cursor_id = notificaciones[-1].id if notificaciones else None
-
-    return notificaciones, ultimo_cursor_id
-
-def get_notificaciones_nuevas(db: Session, usuario_id: int, id_posterior: int):
-
-    notificaciones_nuevas = db.query(models.Notificacion).filter(
-        models.Notificacion.usuario_id == usuario_id,
-        models.Notificacion.fecha_hora_minima_de_envio <= timezone.to_naive_utc(timezone.now_utc()),
-        models.Notificacion.id > id_posterior,
-    ).order_by(models.Notificacion.id.desc()).all()
-
-    return notificaciones_nuevas
-
-def update_notificacion_leida(db: Session, usuario_id: int, notificacion_id: int):
+def marcar_notificacion_como_leida(db: Session, usuario_id: int, notificacion_id: int) -> None:
 
     try:
         filas = db.query(models.Notificacion).filter(

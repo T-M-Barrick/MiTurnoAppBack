@@ -7,12 +7,19 @@ ACCIONES_DE_ENVIO_DE_EMAIL = {
 # Estados que debe tener el turno para poder ser eliminado
 LISTA_PARCIAL_DE_ESTADOS = ['CANCELADO_POR_USUARIO', 'CANCELADO_POR_EMPRESA', 'CUMPLIDO', 'NO_CUMPLIDO']
 
+ROL_MAP = {
+    'PROPIETARIO': 'Propietario',
+    'GERENTE_EMPRESA': 'Gerente de Empresa',
+    'GERENTE_SUCURSAL': 'Gerente de Sucursal',
+    'EMPLEADO': 'Empleado',
+}
+
 DIAS_NOMBRES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 
 GEOREF_URL = "https://apis.datos.gob.ar/georef/api"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 
-MAX_LOGO_SIZE = 50 * 1024  # 50 KB
+MAX_LOGO_SIZE = 2 * 1024 * 1024  # 2 MB
 
 NOTIFICACIONES = {
 
@@ -76,7 +83,7 @@ NOTIFICACIONES = {
 
     "TURNO_CANCELADO_USUARIO": { # si lo canceló la sucursal
         "title": "Turno cancelado",
-        "body": "{nombre_empresa} canceló tu turno para {cuando}",
+        "body": "{nombre_empresa} canceló tu turno programado para {cuando}",
         "required_metadata": ["turno_id", "nombre_empresa", "cuando"],
     },
 
@@ -84,13 +91,13 @@ NOTIFICACIONES = {
         "title": "Turno cancelado",
         "body": {
             # para front de empresa
-            "empresa": "El cliente {cliente_apellido}, {cliente_nombre} canceló su turno en la sucursal {nombre_sucursal} para {cuando}",
+            "empresa": "El cliente {cliente_apellido}, {cliente_nombre} canceló su turno en la sucursal {nombre_sucursal} programado para {cuando}",
             # para front de sucursal
-            "sucursal": "El cliente {cliente_apellido}, {cliente_nombre} canceló su turno para {cuando}",
+            "sucursal": "El cliente {cliente_apellido}, {cliente_nombre} canceló su turno programado para {cuando}",
             # para front de empresa con vos como profesional si lo canceló el cliente
-            "empresa_profesional": "El cliente {cliente_apellido}, {cliente_nombre} canceló su turno con vos en la sucursal {nombre_sucursal} para {cuando}",
+            "empresa_profesional": "El cliente {cliente_apellido}, {cliente_nombre} canceló su turno con vos en la sucursal {nombre_sucursal} programado para {cuando}",
             # para front de sucursal con vos como profesional si lo canceló el cliente
-            "sucursal_profesional": "El cliente {cliente_apellido}, {cliente_nombre} canceló su turno con vos para {cuando}",
+            "sucursal_profesional": "El cliente {cliente_apellido}, {cliente_nombre} canceló su turno con vos programado para {cuando}",
         },
         "required_metadata": {
             # para front de empresa

@@ -1,7 +1,9 @@
-from datetime import datetime, timedelta, date, time
-from typing import Self
+from datetime import datetime
+from typing import Self, Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, SecretStr, Field, conint, condecimal, constr, conlist, field_validator, model_validator
+from pydantic import (
+    BaseModel, ConfigDict, EmailStr, SecretStr, Field, conint, condecimal, constr, conlist, field_validator, model_validator
+)
 
 from schemas.common import (
     Telefono,
@@ -9,8 +11,6 @@ from schemas.common import (
     DireccionCreate,
     DireccionOut,
     DireccionUpdateIn,
-    ServicioOut,
-    ExcepcionFechaServicioOut,
     NotificacionesOut,
     EstadoTurno,
     RolEmpresa,
@@ -21,11 +21,11 @@ from core.security import validate_password
 
 class UserCreate(BaseModel):
     dni: constr(pattern=r"^[0-9]{6,8}$")
-    apellido: constr(min_length=1, max_length=50)
-    nombre: constr(min_length=1, max_length=50)
+    apellido: constr(min_length=1, max_length=30)
+    nombre: constr(min_length=1, max_length=30)
     email: EmailStr = Field(..., max_length=255)
     password: SecretStr = Field(..., min_length=8, max_length=128)
-    recordatorio: conint(ge=30, le=1410, multiple_of=30) | None
+    recordatorio_minutos_antes: conint(ge=30, le=1410, multiple_of=30) | None
     telefonos: conlist(Telefono, min_length=1)
     direcciones: conlist(DireccionCreate, min_length=1)
 
@@ -47,10 +47,10 @@ class UserCreate(BaseModel):
 class SucursalOut(BaseModel):
     id: conint(ge=1)
     cuit: constr(pattern=r"^[0-9]{11}$")
-    nombre: constr(min_length=1, max_length=100) # nombre completo (empresa - sucursal)
+    nombre: constr(min_length=1, max_length=83) # nombre completo (empresa - sucursal)
     email: EmailStr = Field(..., max_length=255)
-    rubro: constr(min_length=1, max_length=100) | None
-    rubro2: constr(min_length=1, max_length=100) | None
+    rubro: constr(min_length=1, max_length=50) | None
+    rubro2: constr(min_length=1, max_length=50) | None
     calificacion: condecimal(ge=0, le=10, max_digits=4, decimal_places=2) | None
     telefonos: list[Telefono]
     direccion: DireccionOut
@@ -61,20 +61,20 @@ class SucursalOut(BaseModel):
 class TurnoUserOut(BaseModel):
     id: conint(ge=1)
     sucursal_id: conint(ge=1)
-    sucursal: constr(min_length=1, max_length=100) # nombre completo (empresa - sucursal)
+    sucursal: constr(min_length=1, max_length=83) # nombre completo (empresa - sucursal)
     logo_empresa_url: constr(min_length=1, max_length=255) | None
     direccion: DireccionOut
     fecha_hora: datetime # debe salir como aware UTC
-    nombre_de_servicio: constr(min_length=1, max_length=100)
+    nombre_de_servicio: constr(min_length=1, max_length=50)
     duracion: conint(gt=0, multiple_of=5)
     precio: condecimal(ge=0, max_digits=10, decimal_places=2)
     aclaracion_de_servicio: constr(min_length=1, max_length=255) | None
     profesional_dni: constr(pattern=r"^[0-9]{6,8}$") | None
-    profesional_apellido: constr(min_length=1, max_length=50) | None
-    profesional_nombre: constr(min_length=1, max_length=50) | None
+    profesional_apellido: constr(min_length=1, max_length=30) | None
+    profesional_nombre: constr(min_length=1, max_length=30) | None
     created_at: datetime
     estado_turno: EstadoTurno
-    recordatorio: conint(ge=30, le=1410, multiple_of=30) | None
+    recordatorio_minutos_antes: conint(ge=30, le=1410, multiple_of=30) | None
 
     @field_validator("fecha_hora", "created_at", mode="after")
     @classmethod
@@ -86,10 +86,10 @@ class TurnoUserOut(BaseModel):
 class UserLoginOut(BaseModel):
     id: conint(ge=1)
     dni: constr(pattern=r"^[0-9]{6,8}$")
-    apellido: constr(min_length=1, max_length=50)
-    nombre: constr(min_length=1, max_length=50)
+    apellido: constr(min_length=1, max_length=30)
+    nombre: constr(min_length=1, max_length=30)
     email: EmailStr = Field(..., max_length=255)
-    recordatorio: conint(ge=30, le=1410, multiple_of=30) | None
+    recordatorio_minutos_antes: conint(ge=30, le=1410, multiple_of=30) | None
     telefonos: conlist(TelefonoConID, min_length=1)
     direcciones: conlist(DireccionOut, min_length=1)
     favoritos: list[SucursalOut]
@@ -100,15 +100,15 @@ class UserLoginOut(BaseModel):
 
 class UserUpdateIn(BaseModel):
     dni: constr(pattern=r"^[0-9]{6,8}$") | None = None
-    apellido: constr(min_length=1, max_length=50) | None = None
-    nombre: constr(min_length=1, max_length=50) | None = None
-    recordatorio: conint(ge=30, le=1410, multiple_of=30) | None = None
+    apellido: constr(min_length=1, max_length=30) | None = None
+    nombre: constr(min_length=1, max_length=30) | None = None
+    recordatorio_minutos_antes: conint(ge=30, le=1410, multiple_of=30) | None = None
     telefonos: conlist(TelefonoConID, min_length=1) | None = None 
     direcciones: conlist(DireccionUpdateIn, min_length=1) | None = None
 
     @model_validator(mode="before")
     @classmethod
-    def validar_campos_not_null(cls, values):
+    def validar_campos_not_null(cls, values: Any) -> Any:
         """
         Rechaza cualquier campo que sea explícitamente enviado como None, exceptuando los campos en la lista de campos permitidos.
         Los campos que no se envíen simplemente se ignoran.
@@ -120,7 +120,7 @@ class UserUpdateIn(BaseModel):
         if not values:
             raise ValueError("Debe enviarse al menos un campo en el schema UserUpdateIn")
 
-        campos_permitidos_null = ["recordatorio"]
+        campos_permitidos_null = ["recordatorio_minutos_antes"]
 
         for field, value in values.items():
             if field in cls.model_fields and field not in campos_permitidos_null and value is None:
@@ -133,10 +133,10 @@ class UserUpdateIn(BaseModel):
 class UserUpdateOut(BaseModel):
     id: conint(ge=1)
     dni: constr(pattern=r"^[0-9]{6,8}$")
-    apellido: constr(min_length=1, max_length=50)
-    nombre: constr(min_length=1, max_length=50)
+    apellido: constr(min_length=1, max_length=30)
+    nombre: constr(min_length=1, max_length=30)
     email: EmailStr = Field(..., max_length=255)
-    recordatorio: conint(ge=30, le=1410, multiple_of=30) | None
+    recordatorio_minutos_antes: conint(ge=30, le=1410, multiple_of=30) | None
     telefonos: conlist(TelefonoConID, min_length=1)
     direcciones: conlist(DireccionOut, min_length=1)
 
@@ -144,17 +144,18 @@ class UserUpdateOut(BaseModel):
 
 class RolEmpresaOut(BaseModel):
     empresa_id: conint(ge=1)
-    nombre_empresa: constr(min_length=1, max_length=50)
+    nombre_empresa: constr(min_length=1, max_length=40)
     logo_empresa_url: constr(min_length=1, max_length=255) | None
+    email: EmailStr = Field(..., max_length=255)
     rol: RolEmpresa
     
     model_config = ConfigDict(from_attributes=True)
 
 class RolSucursalOut(BaseModel):
     sucursal_id: conint(ge=1)
-    nombre_sucursal: constr(min_length=1, max_length=100) # nombre completo (empresa - sucursal)
+    nombre_sucursal: constr(min_length=1, max_length=83) # nombre completo (empresa - sucursal)
     logo_empresa_url: constr(min_length=1, max_length=255) | None
-    direccion: DireccionOut
+    email: EmailStr = Field(..., max_length=255)
     rol: RolSucursal
     
     model_config = ConfigDict(from_attributes=True)
@@ -202,7 +203,7 @@ class ReservaTurnoOpcionesUserIn(BaseModel):
 
 class TurnoEstadoUpdateIn(BaseModel):
     estado_turno: EstadoTurno
-    observacion: constr(min_length=1, max_length=255) | None # por ejemplo: el motivo de cancelación
+    motivo: constr(min_length=1, max_length=255) | None # por ejemplo: el motivo de cancelación
     calificacion: conint(ge=0, le=10) | None # solo permite enteros de 0 a 10
 
     @model_validator(mode="after")
@@ -221,16 +222,17 @@ class TurnoRecordatorioUpdateIn(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class TurnoHistorialUser(BaseModel):
-    sucursal: constr(min_length=1, max_length=100) # nombre completo (empresa - sucursal)
+    id: conint(ge=1)
+    sucursal: constr(min_length=1, max_length=83) # nombre completo (empresa - sucursal)
     logo_empresa_url: constr(min_length=1, max_length=255) | None
     fecha_hora: datetime # debe salir como aware UTC
-    nombre_de_servicio: constr(min_length=1, max_length=100)
+    nombre_de_servicio: constr(min_length=1, max_length=50)
     duracion: conint(gt=0, multiple_of=5)
     precio: condecimal(ge=0, max_digits=10, decimal_places=2)
     aclaracion_de_servicio: constr(min_length=1, max_length=255) | None
     profesional_dni: constr(pattern=r"^[0-9]{6,8}$") | None
-    profesional_apellido: constr(min_length=1, max_length=50) | None
-    profesional_nombre: constr(min_length=1, max_length=50) | None
+    profesional_apellido: constr(min_length=1, max_length=30) | None
+    profesional_nombre: constr(min_length=1, max_length=30) | None
     created_at: datetime
     estado_turno: EstadoTurno
 
@@ -250,33 +252,6 @@ class HistorialUserOut(BaseModel):
     @classmethod
     def validar_fecha_hora_utc(cls, value: datetime | None) -> datetime | None:
         return validate_aware_utc(value) if value else None
-
-    model_config = ConfigDict(from_attributes=True)
-
-class TurnoActualDelServicio(BaseModel):
-    id: conint(ge=1)
-    fecha_hora: datetime # debe salir como aware UTC
-    duracion: conint(gt=0, multiple_of=5) # minutos
-
-    @field_validator("fecha_hora", mode="after")
-    @classmethod
-    def validar_fecha_hora_utc(cls, value: datetime) -> datetime:
-        return validate_aware_utc(value)
-
-    model_config = ConfigDict(from_attributes=True)
-
-class ServicioUserConTurnosOut(BaseModel):
-    id: conint(ge=1)
-    nombre: constr(min_length=1, max_length=100)
-    aclaracion: constr(min_length=1, max_length=255) | None
-    profesional_id: conint(ge=1) | None
-    profesional_dni: constr(pattern=r"^[0-9]{6,8}$") | None
-    profesional_apellido: constr(min_length=1, max_length=50) | None
-    profesional_nombre: constr(min_length=1, max_length=50) | None
-    dias_max_reserva: conint(ge=0) | None
-    servicios: conlist(ServicioOut, min_length=1)
-    turnos_actuales: list[TurnoActualDelServicio]
-    excepciones_fechas: list[ExcepcionFechaServicioOut]
 
     model_config = ConfigDict(from_attributes=True)
 

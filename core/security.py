@@ -1,6 +1,6 @@
 import re
 
-def validate_password(password: str):
+def validate_password(password: str) -> None:
 
     if " " in password:
         raise ValueError("La contraseña no puede contener espacios")

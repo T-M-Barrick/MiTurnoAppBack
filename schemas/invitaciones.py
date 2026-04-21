@@ -1,4 +1,3 @@
-from datetime import datetime, timedelta, date, time
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, conint, constr, field_validator, model_validator
@@ -34,7 +33,8 @@ class InvitacionEmpleadoIn(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class InvitacionAceptadaOut(BaseModel):
-    nombre: constr(min_length=1, max_length=100) # puede ser nombre de empresa o nombre completo de sucursal (empresa - sucursal)
+    nombre: constr(min_length=1, max_length=83) # puede ser nombre de empresa o nombre completo de sucursal (empresa - sucursal)
     rol: RolEmpresa | RolSucursal
+    cantidad_sucursales: conint(ge=1)
 
     model_config = ConfigDict(from_attributes=True)

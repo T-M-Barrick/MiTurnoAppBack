@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from fastapi import Request
+from fastapi import Request, FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
@@ -8,13 +8,13 @@ from core.logger import logger
 from core.exceptions import DomainError, AppSystemError
 from core.errores import PYDANTIC_ERROR_MAP
 
-def register_exception_handlers(app):
+def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(DomainError)
-    def domain_error_handler(request: Request, exc: DomainError):
+    def domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
 
         content = {
-            "code": exc.code
+            "code": exc.code,
         }
 
         if exc.metadata:
@@ -25,18 +25,20 @@ def register_exception_handlers(app):
 
         return JSONResponse(
             status_code=exc.status_code,
-            content=content
+            content=content,
         )
     
     @app.exception_handler(AppSystemError)
-    def appsystem_error_handler(request: Request, exc: AppSystemError):
+    def appsystem_error_handler(request: Request, exc: AppSystemError) -> JSONResponse:
 
         error_id = uuid4()
-        logger.error(f"[{error_id}] AppSystemError: {exc}", exc_info=True)
+        logger.error(
+            f"[{error_id}] AppSystemError: {exc}", exc_info=(type(exc), exc, exc.__traceback__)
+        )
 
         content = {
             "code": exc.code,
-            "error_id": str(error_id)
+            "error_id": str(error_id),
         }
 
         if exc.metadata:
@@ -44,11 +46,11 @@ def register_exception_handlers(app):
 
         return JSONResponse(
             status_code=exc.status_code,
-            content=content
+            content=content,
         )
     
     @app.exception_handler(RequestValidationError)
-    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
 
         errores = []
 
@@ -59,7 +61,7 @@ def register_exception_handlers(app):
 
             if pydantic_type == "value_error":
                 code = "INVALID_INPUT"
-                logger.error(f"Error en el Front: {err['msg']}")
+                logger.warning("Error de validación: %s", err["msg"])
             else:
                 code = PYDANTIC_ERROR_MAP.get(pydantic_type, "INVALID_INPUT")
 
@@ -68,14 +70,14 @@ def register_exception_handlers(app):
 
             errores.append({
                 "code": code,
-                "field": field
+                "field": field,
             })
 
         return JSONResponse(
             status_code=422,
             content={
                 "code": "VALIDATION_ERROR",
-                "errors": errores
+                "errors": errores,
             }
         )
         '''
@@ -96,16 +98,16 @@ def register_exception_handlers(app):
         '''
     
     @app.exception_handler(Exception)
-    async def general_exception_handler(request: Request, exc: Exception):
+    def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
 
         error_id = uuid4()
-        logger.exception(f"[{error_id}] {exc}") # a nivel funcional es exactamente lo mismo que hacer logger.error(exc, exc_info=True)
+        logger.error("[%s] Error no manejado", error_id, exc_info=exc)
 
         # Responder al usuario respetando tu formato "message"
         return JSONResponse(
             status_code=500,
             content={
                 "code": "INTERNAL_ERROR", # default_message = "Ocurrió un error interno en el servidor"
-                "error_id": str(error_id)
+                "error_id": str(error_id),
             }
         )

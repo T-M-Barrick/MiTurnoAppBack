@@ -1,7 +1,6 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 import random
 
-import requests
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 
@@ -12,8 +11,13 @@ from core.config import (
     FRONT_RESET_EMAIL_PATH,
     EMAIL,
     SERVER_API_KEY_BREVO,
+    TEMPLATE_ID_VERIFICATION_EMAIL_USUARIO,
+    TEMPLATE_ID_VERIFICATION_EMAIL_EMPRESA,
+    TEMPLATE_ID_INVITE_EMAIL,
+    TEMPLATE_ID_RESET_EMAIL,
+    TEMPLATE_ID_TURNO_CANCELADO_EMAIL_CLIENTE,
+    TEMPLATE_ID_TURNO_CANCELADO_EMAIL_EMPRESA,
 )
-from core.logger import logger
 from core import exceptions, timezone
 
 # Configurar la API Key
@@ -26,13 +30,20 @@ api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(co
 SENDER_NAME = "MiTurno"
 
 # ------------------ MAIL DE VERIFICACIÓN DE EMAIL ------------------ #
-def send_verification_email(to_email: str, token: str):
-    verify_link = FRONTEND_URL + FRONT_VERIFICACTION_EMAIL_PATH + token
+def send_verification_email(to_email: str, tipo: str, token: str) -> None:
+    verify_link = FRONTEND_URL + FRONT_VERIFICACTION_EMAIL_PATH + f"tipo={tipo}&token={token}"
+
+    if tipo == "usuario":
+        template_id = TEMPLATE_ID_VERIFICATION_EMAIL_USUARIO
+    elif tipo == "empresa":
+        template_id = TEMPLATE_ID_VERIFICATION_EMAIL_EMPRESA
+    else:
+        raise ValueError(f"Tipo inválido: {tipo}")
 
     send_email = sib_api_v3_sdk.SendSmtpEmail(
         to=[{"email": to_email}],
         sender={"name": SENDER_NAME, "email": EMAIL},
-        template_id=12345,  # ID de la plantilla que creaste en Brevo
+        template_id=template_id,
         params={
             "verify_link": verify_link
         }
@@ -41,17 +52,16 @@ def send_verification_email(to_email: str, token: str):
     try:
         api_instance.send_transac_email(send_email)
     except ApiException as e:
-        logger.error("Error enviando correo: %s", e)
-        raise exceptions.EmailSendFailedError()
+        raise exceptions.EmailSendFailedError() from e
 
 # ------------------ MAIL DE INVITACIÓN ------------------ #
-def send_invite_email(to_email: str, token: str, empresa_nombre: str, rol: str):
+def send_invite_email(to_email: str, token: str, empresa_nombre: str, rol: str) -> None:
     invite_link = FRONTEND_URL + FRONT_INVITE_EMAIL_PATH + token
 
     send_email = sib_api_v3_sdk.SendSmtpEmail(
         to=[{"email": to_email}],
         sender={"name": SENDER_NAME, "email": EMAIL},
-        template_id=12345,  # ID de la plantilla que creaste en Brevo
+        template_id=TEMPLATE_ID_INVITE_EMAIL,
         params={
             "empresa_nombre": empresa_nombre,
             "rol": rol,
@@ -62,17 +72,16 @@ def send_invite_email(to_email: str, token: str, empresa_nombre: str, rol: str):
     try:
         api_instance.send_transac_email(send_email)
     except ApiException as e:
-        logger.error("Error enviando correo: %s", e)
         raise exceptions.EmailSendFailedError() from e
 
 # ------------------ MAIL PARA RESETEO DE CONTRASEÑA ------------------ #
-def send_reset_email(to_email: str, token: str):
+def send_reset_email(to_email: str, token: str) -> None:
     reset_link = FRONTEND_URL + FRONT_RESET_EMAIL_PATH + token
 
     send_email = sib_api_v3_sdk.SendSmtpEmail(
         to=[{"email": to_email}],
         sender={"name": SENDER_NAME, "email": EMAIL},
-        template_id=12345,  # ID de la plantilla que creaste en Brevo
+        template_id=TEMPLATE_ID_RESET_EMAIL,
         params={
             "reset_link": reset_link
         }
@@ -81,17 +90,17 @@ def send_reset_email(to_email: str, token: str):
     try:
         api_instance.send_transac_email(send_email)
     except ApiException as e:
-        logger.error("Error enviando correo: %s", e)
-        raise exceptions.EmailSendFailedError()
+        raise exceptions.EmailSendFailedError() from e
 
 # ------------------ MAIL PARA LUEGO DE CANCELACIÓN ------------------ #
 def send_turno_cancelado_email(
     to_email: str,
-    us_emp_nombre: str,
+    cliente: bool, # True acá significa que lo canceló la empresa y el mail se le envía al cliente
+    nombre: str,
     fecha_hora_utc: datetime,
     servicio: str,
     motivo: str | None,
-):
+) -> None:
 
     fecha_hora_utc = timezone.ensure_utc(fecha_hora_utc) # garantía defensiva
 
@@ -105,9 +114,9 @@ def send_turno_cancelado_email(
     send_email = sib_api_v3_sdk.SendSmtpEmail(
         to=[{"email": to_email}],
         sender={"name": SENDER_NAME, "email": EMAIL},
-        template_id=12345,  # ID de la plantilla que creaste en Brevo
+        template_id=TEMPLATE_ID_TURNO_CANCELADO_EMAIL_CLIENTE if cliente else TEMPLATE_ID_TURNO_CANCELADO_EMAIL_EMPRESA,
         params={
-            "us_emp_nombre": us_emp_nombre,
+            "nombre": nombre,
             "fecha": fecha,
             "hora": hora,
             "servicio": servicio,
@@ -118,10 +127,9 @@ def send_turno_cancelado_email(
     try:
         api_instance.send_transac_email(send_email)
     except ApiException as e:
-        logger.error("Error enviando correo: %s", e)
         raise exceptions.EmailSendFailedError() from e
 
-def generar_otp():
+def generar_otp() -> str:
     return str(random.randint(100000, 999999))
 '''
 from twilio.rest import Client

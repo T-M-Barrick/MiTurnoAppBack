@@ -1,7 +1,7 @@
-from datetime import date, time, datetime, timedelta, timezone
+from datetime import time, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from core import constantes, exceptions
+from core import exceptions
 
 # =========================
 # CONFIGURACIÓN CENTRAL
@@ -109,7 +109,7 @@ def extraer_dia_y_hora_en_local(fecha_hora_utc: datetime) -> tuple[int, time]:
     
     return dia_semana, hora
 
-def validar_turno_horario(fecha_hora_turno_utc: datetime, minutos_minimos: int):
+def validar_turno_horario(fecha_hora_turno_utc: datetime, minutos_minimos: int) -> bool:
     """
     Valida que el turno sea al menos 'minutos_minimos' en el futuro
     """
@@ -121,13 +121,17 @@ def validar_turno_horario(fecha_hora_turno_utc: datetime, minutos_minimos: int):
     if fecha_hora_turno_utc < limite:
         return False
 
-def validar_turno_dias_max(fecha_hora_turno_utc: datetime, dias_max: int):
-    '''
+    return True
+
+def validar_turno_dias_max(fecha_hora_turno_utc: datetime, dias_max: int) -> bool:
+    """
     Valida límite máximo de días para sacar turno
-    '''
+    """
     fecha_hora_turno_utc = ensure_utc(fecha_hora_turno_utc) # garantía defensiva
     hoy = now_utc() # datetime aware UTC
     max_fecha = (hoy + timedelta(days=dias_max - 1)).date() # Restamos 1 porque hoy cuenta como día 1
 
     if fecha_hora_turno_utc.date() > max_fecha:
         return False
+
+    return True

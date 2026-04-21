@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from core import models
 from core.database import SessionLocal
 
-def seed_estados_turno(db: Session):
+def seed_estados_turno(db: Session) -> None:
     estados = [
         "CONFIRMADO",
         "CANCELADO_POR_USUARIO",
@@ -21,7 +21,7 @@ def seed_estados_turno(db: Session):
         if estado not in existentes:
             db.add(models.Estado_Turno(estado=estado))
 
-def seed_roles(db: Session):
+def seed_roles(db: Session) -> None:
     roles = [
         ("PROPIETARIO", "EMPRESA"),
         ("GERENTE_EMPRESA", "EMPRESA"),
@@ -38,12 +38,12 @@ def seed_roles(db: Session):
         if (nombre, tipo) not in existentes:
             db.add(models.Rol(nombre=nombre, tipo=tipo))
 
-def run_seeds(db: Session):
+def run_seeds(db: Session) -> None:
     seed_estados_turno(db)
     seed_roles(db)
     db.commit()
 
-def ejecutar_seeds():
+def ejecutar_seeds() -> None:
     db = SessionLocal()
 
     version = db.execute(text("SHOW server_version")).scalar()

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy import or_
@@ -7,7 +7,7 @@ from sqlalchemy.orm import joinedload
 from core.database import SessionLocal
 from core import models, mensajes, auxiliares, timezone
 
-def enviar_recordatorios():
+def enviar_recordatorios() -> None:
     db = SessionLocal()
 
     ahora_aware_utc = timezone.now_utc() # aware UTC
@@ -62,7 +62,7 @@ def enviar_recordatorios():
     finally:
         db.close()
 
-def limpiar_turnos_a_historial():
+def limpiar_turnos_a_historial() -> None:
     db = SessionLocal()
 
     ahora_naive_utc = timezone.to_naive_utc(timezone.now_utc())
@@ -91,7 +91,7 @@ def limpiar_turnos_a_historial():
     finally:
         db.close()
 
-def limpiar_notificaciones_viejas():
+def limpiar_notificaciones_viejas() -> None:
     db = SessionLocal()
 
     try:
@@ -116,7 +116,7 @@ def limpiar_notificaciones_viejas():
     finally:
         db.close()
 
-def limpiar_tokens_expirados():
+def limpiar_tokens_expirados() -> None:
     db = SessionLocal()
     try:
         ahora_naive_utc = timezone.to_naive_utc(timezone.now_utc())
@@ -127,7 +127,7 @@ def limpiar_tokens_expirados():
     finally:
         db.close()
 
-def start_scheduler():
+def start_scheduler() -> None:
     scheduler = BackgroundScheduler()
     'scheduler.add_job(enviar_recordatorios, "cron", minute="0,5,10,15,20,25,30,35,40,45,50,55")'
     scheduler.add_job(limpiar_turnos_a_historial, "interval", hours=24)
