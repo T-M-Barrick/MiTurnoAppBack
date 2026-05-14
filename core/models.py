@@ -346,7 +346,7 @@ class Turno(Base):
         CheckConstraint("precio >= 0", name="ck_turno_precio_pos"),
         ExcludeConstraint(
             (
-                func.tstzrange(
+                func.tsrange(
                     fecha_hora,
                     fecha_hora + func.make_interval(0, 0, 0, 0, 0, duracion),
                     '[)',
