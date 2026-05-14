@@ -6,7 +6,7 @@ from sqlalchemy import (
     DateTime, Date, Time,
     Float, Numeric, Boolean,
     Index, UniqueConstraint, CheckConstraint,
-    func, or_, and_, text, cast, Interval, event, select,
+    func, or_, and_, text, event, select,
 )
 from sqlalchemy.orm import relationship, validates
 from sqlalchemy.dialects.postgresql import JSONB, ExcludeConstraint
@@ -348,7 +348,7 @@ class Turno(Base):
             (
                 func.tstzrange(
                     fecha_hora,
-                    fecha_hora + cast(func.concat(duracion, ' minutes'), Interval()),
+                    fecha_hora + func.make_interval(0, 0, 0, 0, 0, duracion),
                     '[)',
                 ),
                 "&&"
