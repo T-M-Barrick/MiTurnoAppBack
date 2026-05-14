@@ -347,22 +347,22 @@ class Turno(Base):
         ExcludeConstraint(
             (
                 func.tstzrange(
-                    Turno.fecha_hora,
-                    Turno.fecha_hora + func.make_interval(mins=Turno.duracion),
+                    fecha_hora,
+                    fecha_hora + func.make_interval(mins=duracion),
                     '[)',
                 ),
                 "&&"
             ),
             (
-                Turno.usuario_id,
+                usuario_id,
                 "="
             ),
             name="no_overlap_turnos_usuario",
             using="gist",
             where=and_(
-                Turno.usuario_id.isnot(None),
-                Turno.eliminado_por_usuario == False,
-                Turno.estado_turno_usuario_id == 1,
+                usuario_id.isnot(None),
+                eliminado_por_usuario == False,
+                estado_turno_usuario_id == 1,
             ),
         ),
     )
