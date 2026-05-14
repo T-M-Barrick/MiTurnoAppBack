@@ -15,10 +15,6 @@ FRONT_RESET_EMAIL_PATH = os.getenv("FRONT_RESET_EMAIL_PATH")
 
 EMAIL = os.getenv("EMAIL")
 
-GMAIL = os.getenv("GMAIL")
-GMAIL_PASSWORD = os.getenv("GMAIL_PASSWORD")
-GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
-
 DB_URL = os.getenv("DB_URL")
 
 SECRET_KEY = os.getenv("SECRET_KEY")

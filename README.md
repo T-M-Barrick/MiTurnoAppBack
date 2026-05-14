@@ -87,11 +87,6 @@ FRONT_RESET_EMAIL_PATH=/restablecer-password
 # Email de envío
 EMAIL=noreply@tu-dominio.com
 
-# Gmail (alternativa a Brevo para algunos envíos)
-GMAIL=tu-cuenta@gmail.com
-GMAIL_PASSWORD=tu-password
-GMAIL_APP_PASSWORD=tu-app-password
-
 # Brevo / Sendinblue
 SERVER_API_KEY_BREVO=tu_api_key
 TEMPLATE_ID_VERIFICATION_EMAIL_USUARIO=0
