@@ -597,7 +597,7 @@ def obtener_notificaciones(
 @router.get("/{sucursal_id}/notificaciones/nuevas", response_model=list[schemas_common.NotificacionOut], status_code=200)
 def obtener_notificaciones_nuevas(
     sucursal_id: int = Path(..., ge=1),
-    id_posterior: int = Query(..., ge=1),
+    id_posterior: int = Query(..., ge=0),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
 ) -> list[schemas_common.NotificacionOut]:

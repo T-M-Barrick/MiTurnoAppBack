@@ -302,7 +302,7 @@ def obtener_notificaciones(
 # Cada 5 minutos el front pregunta por las notificaciones
 @router.get("/notificaciones/nuevas", response_model=list[schemas_common.NotificacionOut], status_code=200)
 def obtener_notificaciones_nuevas(
-    id_posterior: int = Query(..., ge=1),
+    id_posterior: int = Query(..., ge=0),
     current_user: models.Usuario = Depends(autenticacion.get_current_user),
     db: Session = Depends(get_db),
 ) -> list[schemas_common.NotificacionOut]:

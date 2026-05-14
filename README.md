@@ -12,10 +12,14 @@ Backend de una plataforma SaaS de gestión de turnos y reservas ("MiTurno"). Con
 - **Disponibilidad semanal**: configuración de horarios por sucursal y profesional
 - **Roles y permisos**: `PROPIETARIO`, `GERENTE_EMPRESA`, `GERENTE_SUCURSAL`, `EMPLEADO`
 - **Registro de clientes por sucursal**: búsqueda por trigrama con soporte de tildes
+- **Bloqueo de clientes**: cada sucursal puede bloquear clientes para impedir reservas
+- **Favoritos**: los usuarios pueden guardar sucursales como favoritas
+- **Reserva pública**: cada sucursal puede habilitar o deshabilitar la reserva pública
 - **Notificaciones**: recordatorios de turnos por email (Brevo/Sendinblue)
 - **Imágenes**: subida y gestión de logos via Cloudinary
-- **Geocodificación**: resolución de direcciones y coordenadas
-- **Tareas programadas**: recordatorios SMS, archivo automático de turnos (180 días), limpieza de notificaciones (90/365 días), expiración de tokens
+- **Geocodificación**: resolución de direcciones y coordenadas (Nominatim)
+- **Tareas programadas**: recordatorios de turnos, archivo automático de turnos (180 días), limpieza de notificaciones, expiración de tokens
+- **Reset de contraseña**: por email (Brevo) y por código OTP vía móvil
 
 ---
 
@@ -68,18 +72,34 @@ DB_URL=postgresql+psycopg2://usuario:password@localhost:5432/miturno
 # JWT / Autenticación
 SECRET_KEY=tu_clave_secreta
 ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=60
+ACCESS_TOKEN_EXPIRE_MINUTES=1440
+VERIFY_EMAIL_TOKEN_EXPIRE_HOURS=24
 COOKIE_NAME=access_token
 COOKIE_DOMAIN=tu-dominio.com
 COOKIE_SECURE=true
 COOKIE_SAMESITE=lax
 
-# Email (Brevo / Sendinblue)
-SERVER_API_KEY_BREVO=tu_api_key
-EMAIL=noreply@tu-dominio.com
+# Rutas del front para emails
 FRONT_VERIFICACTION_EMAIL_PATH=/verificar-email
 FRONT_INVITE_EMAIL_PATH=/aceptar-invitacion
 FRONT_RESET_EMAIL_PATH=/restablecer-password
+
+# Email de envío
+EMAIL=noreply@tu-dominio.com
+
+# Gmail (alternativa a Brevo para algunos envíos)
+GMAIL=tu-cuenta@gmail.com
+GMAIL_PASSWORD=tu-password
+GMAIL_APP_PASSWORD=tu-app-password
+
+# Brevo / Sendinblue
+SERVER_API_KEY_BREVO=tu_api_key
+TEMPLATE_ID_VERIFICATION_EMAIL_USUARIO=0
+TEMPLATE_ID_VERIFICATION_EMAIL_EMPRESA=0
+TEMPLATE_ID_INVITE_EMAIL=0
+TEMPLATE_ID_RESET_EMAIL=0
+TEMPLATE_ID_TURNO_CANCELADO_EMAIL_CLIENTE=0
+TEMPLATE_ID_TURNO_CANCELADO_EMAIL_EMPRESA=0
 
 # Cloudinary
 CLOUDINARY_CLOUD_NAME=tu_cloud_name
@@ -145,7 +165,17 @@ Response Schema (Pydantic)
 | `schemas/` | Modelos Pydantic para request y response |
 | `mappers/` | Transforman instancias SQLAlchemy en schemas de respuesta |
 | `core/models.py` | Todos los modelos ORM en un solo archivo |
+| `core/config.py` | Carga de variables de entorno y configuración de Cloudinary |
+| `core/autenticacion.py` | Lógica de autenticación JWT y extracción del usuario actual |
+| `core/security.py` | Hash de contraseñas y generación de tokens |
 | `core/exceptions.py` | Jerarquía de excepciones de dominio |
+| `core/errores.py` | Definiciones de errores de negocio |
+| `core/mensajes.py` | Envío de emails (Brevo y Gmail) |
+| `core/constantes.py` | Constantes de la aplicación (tipos de notificación, URLs, etc.) |
+| `core/timezone.py` | Manejo de zonas horarias |
+| `core/auxiliares.py` | Funciones auxiliares compartidas |
+| `core/database.py` | Configuración de la conexión a la base de datos |
+| `core/logger.py` | Configuración del logger |
 | `services/` | Tareas en background: envío de emails y SMS |
 | `services/scheduler.py` | Jobs periódicos con APScheduler |
 | `handlers/` | Registro de manejadores de excepciones HTTP |
@@ -163,23 +193,33 @@ Usuario ────────────────────────
           (roles:            (roles:
            PROPIETARIO,       GERENTE_SUCURSAL,
            GERENTE_EMPRESA)   EMPLEADO)
-                                    │
-                    ┌───────────────┼───────────────────┐
-                    │               │                   │
-             ServicioBase      Disponibilidad    Cliente_Sucursal
-                    │          (agenda semanal)
-             Servicio (versionado por franja de fechas)
-                    │
-                  Turno ── Estado_Turno (usuario / sucursal)
-                    │
-               Notificacion
+
+                                   Sucursal
+                                       │
+              ┌────────────────────────┼──────────────────────────┐
+              │                        │                           │
+        ServicioBase            Cliente_Sucursal                  Turno
+        │          │                   │                           │
+    Servicio   ExcepcionFecha   BloqueoSucursal           Notificacion
+    (versión   (bloqueo de                            Estado_Turno x2
+    con        fechas)                            (usuario / sucursal)
+    vigencia)
+        │
+    Disponibilidad
+    (horarios por día)
+
+Usuario ──→ Favorito ──→ Sucursal
 ```
 
 **Notas sobre el modelo:**
 - `ServicioBase` agrupa versiones de un mismo servicio; `Servicio` almacena precio y duración con franjas de vigencia (`vigente_desde` / `vigente_hasta`), sin superposiciones garantizadas por `ExcludeConstraint`
 - `Turno` guarda un estado independiente para el lado del usuario y para el lado de la sucursal
-- `Cliente_Sucursal` es el registro de clientes propio de cada sucursal, separado del `Usuario` del sistema
+- `Cliente_Sucursal` es el registro de clientes propio de cada sucursal, separado del `Usuario` del sistema; tiene campo `busqueda_texto` para búsqueda por trigrama
+- `ExcepcionFechaServicio` define rangos de fechas bloqueadas para un servicio (sin superposición garantizada por `ExcludeConstraint`)
+- `BloqueoSucursal` permite a cada sucursal bloquear clientes individualmente
 - `Sucursal` tiene un campo `busqueda_texto` generado automáticamente (via eventos SQLAlchemy) para búsqueda por trigrama
+- `Blacklist` almacena los `jti` de tokens revocados al hacer logout
+- `OTPCode` almacena códigos de un solo uso para reset de contraseña por móvil
 
 ---
 
@@ -194,18 +234,21 @@ Usuario ────────────────────────
 
 ## Stack tecnológico
 
-| Tecnología | Uso |
-|-----------|-----|
-| FastAPI 0.116 | Framework web |
-| SQLAlchemy 2.0 | ORM |
-| PostgreSQL | Base de datos |
-| psycopg2 | Driver PostgreSQL |
-| Pydantic v2 | Validación de datos |
-| python-jose | JWT |
-| passlib + bcrypt | Hash de contraseñas |
-| APScheduler 3 | Tareas programadas |
-| Cloudinary | Almacenamiento de imágenes |
-| Brevo (sib-api-v3-sdk) | Envío de emails |
-| Pillow | Procesamiento de imágenes |
-| Requests | HTTP client (geocodificación) |
-| Uvicorn | Servidor ASGI |
+| Tecnología | Versión | Uso |
+|-----------|---------|-----|
+| FastAPI | 0.116.1 | Framework web |
+| Uvicorn | 0.35.0 | Servidor ASGI |
+| SQLAlchemy | 2.0.43 | ORM |
+| PostgreSQL | 14+ | Base de datos |
+| psycopg2-binary | 2.9.11 | Driver PostgreSQL síncrono |
+| asyncpg | 0.31.0 | Driver PostgreSQL asíncrono |
+| Pydantic | 2.11.7 | Validación de datos |
+| python-jose | 3.5.0 | JWT |
+| passlib + bcrypt | 1.7.4 / 4.0.1 | Hash de contraseñas |
+| APScheduler | 3.11.0 | Tareas programadas |
+| Cloudinary | 1.44.1 | Almacenamiento de imágenes |
+| Brevo (sib-api-v3-sdk) | 7.6.0 | Envío de emails |
+| Pillow | 12.0.0 | Procesamiento de imágenes |
+| Requests | 2.32.5 | HTTP client (geocodificación) |
+| python-dotenv | 1.1.1 | Carga de variables de entorno |
+| python-multipart | 0.0.22 | Subida de archivos (logos) |
