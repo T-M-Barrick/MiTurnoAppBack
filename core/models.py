@@ -348,7 +348,7 @@ class Turno(Base):
             (
                 func.tstzrange(
                     fecha_hora,
-                    fecha_hora + func.make_interval(mins=duracion),
+                    fecha_hora + func.cast(func.concat(duracion, ' minutes'), text('interval')),
                     '[)',
                 ),
                 "&&"
